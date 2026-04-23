@@ -147,7 +147,7 @@ Descripción política, 2-3 oraciones. Quién gana, quién pierde, qué implica 
 [Top 2 temas fuera de agenda]
 
 *📝 ANÁLISIS — NOVEDADES DESDE EL ÚLTIMO ENVÍO*
-[Esta sección es OBLIGATORIA y debe incluir TODA nota nueva de: Cenital, Anfibia, CEPA, Econojournal, Va con firma, Kranear, Panamá Revista, El Cohete a la Luna, Le Monde Diplomatique, y de periodistas como Tokatlian, Genoud, Zaiat, u otros analistas definidos. Si hay nueva nota de alguno de estos medios/periodistas desde el último envío, VA SÍ O SÍ. Cada nota con 1-2 oraciones de resumen.]
+[Esta sección es OBLIGATORIA. Incluí MÁXIMO 12 notas. Priorizá en este orden: (1) notas de Cenital, Anfibia, El Cohete a la Luna, Panamá Revista, Revista Crisis — las más de fondo; (2) notas de Le Monde Diplomatique, CEPA, MATE; (3) notas de EconoJournal, Va con firma, Kranear, El Grito del Sur; (4) notas de periodistas como Tokatlian, Genoud, Zaiat, Verbitsky, Kollmann, Zlotogwiazda. Si hay más de 12 notas, elegí las 12 más relevantes siguiendo esta prioridad. Cada nota con 1-2 oraciones MÁXIMO.]
 ▪️ *[Título de la nota]* — [Medio/Periodista]
 [Resumen breve del enfoque, 1-2 oraciones. Por qué es importante para la organización.]
 🔗 [link exacto acortado]
@@ -156,7 +156,9 @@ Descripción política, 2-3 oraciones. Quién gana, quién pierde, qué implica 
 [Qué temas se actualizaron, cuáles son nuevos, cuáles desaparecieron. 3-4 líneas máximo.]
 
 —
-🤖 Patria Grande | [horario]`;
+🤖 Patria Grande | [horario]
+
+⚠️ RECORDATORIO FINAL (CRITICO): El mensaje SIEMPRE debe terminar con la línea "🤖 Patria Grande | [horario]". Si llegás al límite de tokens sin cerrar, REINICIÁ con menos contenido: cortá 3 notas de análisis, acortá descripciones, eliminá la sección "COMPARACIÓN" si hace falta. NUNCA entregues un mensaje sin cerrar. Antes de terminar, verificá que el footer está presente.`;
 }
 
 // ── Prompt: boletín grupal (20:00) ───────────────────────────────────────────
