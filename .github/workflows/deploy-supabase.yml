@@ -1,8 +1,7 @@
 name: Deploy Supabase Edge Functions
 
-# Corre automáticamente cada vez que se pushea algo a la rama main
-# que afecte a las Edge Functions o al config.toml.
-# También se puede disparar a mano desde la pestaña "Actions" en GitHub.
+# Se dispara automáticamente al pushear cambios en Edge Functions o config.
+# Botón manual "Run workflow" también disponible desde la pestaña Actions.
 
 on:
   push:
@@ -12,7 +11,7 @@ on:
       - 'supabase/functions/**'
       - 'supabase/config.toml'
       - '.github/workflows/deploy-supabase.yml'
-  workflow_dispatch:  # botón manual "Run workflow" en GitHub
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -31,11 +30,25 @@ jobs:
         with:
           version: latest
 
-      - name: Verificar conexión
-        run: supabase --version
+      # ── Funciones INTERNAS (sin verificación de JWT) ────────────────────────
+      # scrape-news, generate-digest y send-telegram son llamadas por
+      # run-digest-pipeline, no directamente desde afuera. El nuevo sistema
+      # de JWT de Supabase 2026 rechaza las llamadas internas, así que las
+      # deployamos con --no-verify-jwt.
+      - name: Deploy scrape-news (sin JWT)
+        run: supabase functions deploy scrape-news --no-verify-jwt --project-ref $PROJECT_ID
 
-      - name: Deploy de todas las Edge Functions
-        run: supabase functions deploy --project-ref $PROJECT_ID
+      - name: Deploy generate-digest (sin JWT)
+        run: supabase functions deploy generate-digest --no-verify-jwt --project-ref $PROJECT_ID
+
+      - name: Deploy send-telegram (sin JWT)
+        run: supabase functions deploy send-telegram --no-verify-jwt --project-ref $PROJECT_ID
+
+      # ── Función ORQUESTADORA (con verificación de JWT) ──────────────────────
+      # run-digest-pipeline es el entry point público, pg_cron le pasa
+      # el service_role_key como bearer.
+      - name: Deploy run-digest-pipeline (con JWT)
+        run: supabase functions deploy run-digest-pipeline --project-ref $PROJECT_ID
 
       - name: Listo
         run: echo "✅ Edge Functions desplegadas correctamente"
