@@ -10,14 +10,16 @@
 CREATE EXTENSION IF NOT EXISTS pg_cron;
 CREATE EXTENSION IF NOT EXISTS pg_net;
 
--- ── Función helper que dispara run-digest-pipeline con el schedule_name ──────
--- Reemplazá '__SUPABASE_URL__' y '__SERVICE_ROLE_KEY__' al aplicar la migration.
--- Supabase inyecta estos valores automáticamente en edge functions pero no en
--- pg_cron, por eso hay que setearlos acá directo.
+-- ── Función que dispara run-digest-pipeline desde pg_cron ────────────────────
+-- Lee los secrets desde Supabase Vault (encriptados).
 --
--- Si estás usando Supabase Cloud, podés setearlos como secrets del proyecto y
--- referenciarlos con `vault.decrypted_secrets`. Para empezar simple, los dejamos
--- como strings que hay que reemplazar antes de aplicar.
+-- Supabase Cloud no permite usar ALTER DATABASE SET app.* al usuario normal,
+-- por eso usamos Vault. Los secrets se deben guardar manualmente una vez:
+--
+--   SELECT vault.create_secret('https://TU-PROYECTO.supabase.co', 'app_supabase_url', '...');
+--   SELECT vault.create_secret('TU_SERVICE_ROLE_KEY', 'app_service_role_key', '...');
+--
+-- Ver README.md, sección "Setup desde cero" para detalles.
 
 CREATE OR REPLACE FUNCTION public.trigger_digest_pipeline(schedule_label TEXT)
 RETURNS void
@@ -26,11 +28,16 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
-  supabase_url TEXT := current_setting('app.supabase_url', true);
-  service_key TEXT := current_setting('app.service_role_key', true);
+  supabase_url TEXT;
+  service_key TEXT;
 BEGIN
+  SELECT decrypted_secret INTO supabase_url
+    FROM vault.decrypted_secrets WHERE name = 'app_supabase_url';
+  SELECT decrypted_secret INTO service_key
+    FROM vault.decrypted_secrets WHERE name = 'app_service_role_key';
+
   IF supabase_url IS NULL OR service_key IS NULL THEN
-    RAISE EXCEPTION 'app.supabase_url y app.service_role_key deben estar configurados. Ver migration.';
+    RAISE EXCEPTION 'Faltan secrets en vault: app_supabase_url o app_service_role_key';
   END IF;
 
   PERFORM net.http_post(
@@ -79,14 +86,3 @@ SELECT cron.schedule(
   '0 23 * * *',
   $$SELECT public.trigger_digest_pipeline('Boletín 20:00');$$
 );
-
--- ═══════════════════════════════════════════════════════════════════
--- CONFIGURACIÓN MANUAL REQUERIDA (una sola vez, después de aplicar):
---
--- Conectarse al SQL editor de Supabase con rol postgres y ejecutar:
---
--- ALTER DATABASE postgres SET app.supabase_url = 'https://TU-PROYECTO.supabase.co';
--- ALTER DATABASE postgres SET app.service_role_key = 'TU_SERVICE_ROLE_KEY';
---
--- Después de eso, los schedules empiezan a funcionar.
--- ═══════════════════════════════════════════════════════════════════
