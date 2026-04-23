@@ -5,7 +5,27 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Convierte el formato de Gemini (Markdown simple) a HTML de Telegram.
+// HTML es más tolerante que Markdown: no rompe por un * suelto.
+// Cuando se copia/pega a WhatsApp, WhatsApp ignora las tags HTML y
+// el texto queda limpio (los *asteriscos* de negrita se pierden, pero
+// el contenido y la estructura se mantienen).
+function toTelegramHTML(text: string): string {
+  // Escapar primero los caracteres HTML peligrosos
+  let html = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  // Convertir *negrita* a <b>negrita</b>
+  // Solo matchea pares completos, los asteriscos sueltos quedan como texto
+  html = html.replace(/\*([^*\n]+?)\*/g, '<b>$1</b>');
+
+  return html;
+}
+
 async function sendTelegramMessage(botToken: string, chatId: string, text: string): Promise<void> {
+  // Partir el texto en chunks de hasta 4000 chars respetando saltos de línea
   const chunks: string[] = [];
   if (text.length <= 4096) {
     chunks.push(text);
@@ -24,16 +44,15 @@ async function sendTelegramMessage(botToken: string, chatId: string, text: strin
   }
 
   for (const chunk of chunks) {
+    const htmlText = toTelegramHTML(chunk);
+
     const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: chatId,
-        text: chunk,
-        // Sin parse_mode: enviamos texto plano. Motivo: Gemini a veces genera
-        // asteriscos sueltos (*) que rompen el parser de Markdown de Telegram
-        // con "Can't find end of the entity". WhatsApp interpreta los *negritas*
-        // al pegar el texto, así que no perdemos nada en el destino final.
+        text: htmlText,
+        parse_mode: 'HTML',
         disable_web_page_preview: true,
       }),
     });
