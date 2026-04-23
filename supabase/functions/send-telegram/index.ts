@@ -25,13 +25,22 @@ function toTelegramHTML(text: string): string {
 }
 
 async function sendTelegramMessage(botToken: string, chatId: string, text: string): Promise<void> {
+  // Red de seguridad: si el mensaje no termina con el footer esperado,
+  // agregamos un aviso al final para que sepamos que fue truncado.
+  // El footer esperado termina con "Patria Grande | HH:MM" o similar.
+  let safeText = text.trimEnd();
+  const hasFooter = /🤖\s*Patria Grande/.test(safeText.slice(-200));
+  if (!hasFooter) {
+    safeText += '\n\n⚠️ [Mensaje truncado por límite de tokens. Revisar prompt.]\n🤖 Patria Grande';
+  }
+
   // Partir el texto en chunks de hasta 4000 chars respetando saltos de línea
   const chunks: string[] = [];
-  if (text.length <= 4096) {
-    chunks.push(text);
+  if (safeText.length <= 4096) {
+    chunks.push(safeText);
   } else {
     let current = '';
-    for (const line of text.split('\n')) {
+    for (const line of safeText.split('\n')) {
       const candidate = current ? current + '\n' + line : line;
       if (candidate.length > 4000 && current.length > 0) {
         chunks.push(current);
