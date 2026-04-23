@@ -113,13 +113,24 @@ supabase db push
 
 Esto crea todas las tablas, carga las ~40 fuentes, los 6 periodistas de referencia y los 3 schedules.
 
-### 7. Configurar variables de pg_cron
+### 7. Configurar variables en Supabase Vault
+
+Supabase Cloud no permite `ALTER DATABASE` al usuario normal, así que guardamos los secrets en **Supabase Vault** (encriptados) y pg_cron los lee desde ahí.
 
 En el **SQL Editor** de Supabase, ejecutar una sola vez:
 
 ```sql
-ALTER DATABASE postgres SET app.supabase_url = 'https://TU-PROYECTO.supabase.co';
-ALTER DATABASE postgres SET app.service_role_key = 'TU_SERVICE_ROLE_KEY';
+SELECT vault.create_secret(
+  'https://TU-PROYECTO.supabase.co',
+  'app_supabase_url',
+  'URL del proyecto Supabase'
+);
+
+SELECT vault.create_secret(
+  'TU_SERVICE_ROLE_KEY',
+  'app_service_role_key',
+  'Service role key para pg_cron'
+);
 ```
 
 ### 8. Guardar chat_id del grupo en config
