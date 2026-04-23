@@ -42,14 +42,19 @@ async function shortenAll(urls: string[]): Promise<Map<string, string>> {
 }
 
 // ── Gemini: llamada directa a Google AI (sin gateway Lovable) ─────────────────
-async function callGemini(apiKey: string, systemPrompt: string, userPrompt: string): Promise<string> {
+async function callGemini(
+  apiKey: string,
+  systemPrompt: string,
+  userPrompt: string,
+  maxOutputTokens = 4096
+): Promise<{ text: string; finishReason: string }> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [{ text: `${systemPrompt}\n\n---\n\n${userPrompt}` }] }],
-      generationConfig: { temperature: 0.7, maxOutputTokens: 4096 },
+      generationConfig: { temperature: 0.7, maxOutputTokens },
     }),
   });
   if (!res.ok) {
@@ -57,7 +62,9 @@ async function callGemini(apiKey: string, systemPrompt: string, userPrompt: stri
     throw new Error(`Gemini API error [${res.status}]: ${err}`);
   }
   const data = await res.json();
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  const finishReason = data.candidates?.[0]?.finishReason || 'UNKNOWN';
+  return { text, finishReason };
 }
 
 // ── Clasificación de artículos ────────────────────────────────────────────────
@@ -98,6 +105,19 @@ REGLAS DE CONTENIDO:
 - Calidad alta: solo incluir noticias con al menos 2 fuentes distintas. Descartar noticias débiles.
 - Todos los links YA ESTÁN ACORTADOS en la lista de artículos: usalos textualmente, no los modifiques.
 
+REGLAS DE LONGITUD (CRÍTICO):
+- El mensaje debe SIEMPRE cerrar con el footer "—\\n🤖 Patria Grande | [horario]".
+- Si tenés mucho material, priorizá así:
+  1. Panorama del día (obligatorio, corto).
+  2. Top 3-5 temas nacionales más relevantes (no todos, los MÁS importantes).
+  3. Top 2-3 temas internacionales con impacto para Argentina.
+  4. Top 2 temas fuera de agenda.
+  5. Análisis: TODAS las novedades de medios/periodistas definidos (prioridad absoluta).
+  6. Comparación con envío anterior (corta).
+  7. Footer de cierre (OBLIGATORIO).
+- Si empezás a quedarte sin espacio, ACORTÁ las descripciones individuales (2 oraciones en vez de 4) antes que omitir secciones.
+- NUNCA dejes el mensaje cortado a la mitad. Si ves que no entra todo, eliminá temas menos importantes, NO truncar un tema por la mitad.
+
 ESTRUCTURA DEL RESUMEN PERSONAL:
 
 *📋 RESUMEN [HORARIO] — [Día] [fecha]*
@@ -107,31 +127,33 @@ ESTRUCTURA DEL RESUMEN PERSONAL:
 
 *🇦🇷 ARGENTINA*
 ▪️ *[Título del tema]*
-Descripción política detallada, 3-4 oraciones. Quién gana, quién pierde, qué implica para el campo popular. Dimensión de género si aplica.
+Descripción política, 2-3 oraciones. Quién gana, quién pierde, qué implica para el campo popular. Dimensión de género si aplica.
 🔗 [link1] ([Medio1]) · [link2] ([Medio2]) · [link3] ([Medio3])
 
-[Incluir TODOS los temas nacionales relevantes que tengan 2+ fuentes]
+[Los TOP 3-5 temas nacionales más relevantes con 2+ fuentes. NO incluir todos, elegir los más importantes.]
 
 *🌍 INTERNACIONAL*
 ▪️ *[Título]*
-[Descripción completa, impacto para Argentina y la región]
+[Descripción, 2-3 oraciones, impacto para Argentina y la región]
 🔗 [links]
 
-[Todos los temas internacionales relevantes]
+[Top 2-3 temas internacionales con impacto regional/global]
 
 *🔍 FUERA DE AGENDA*
 ▪️ *[Título]*
-[Lo que los medios hegemónicos no priorizan pero es relevante para el campo popular]
+[Lo que los medios hegemónicos no priorizan pero es relevante para el campo popular, 2 oraciones]
 🔗 [links]
 
+[Top 2 temas fuera de agenda]
+
 *📝 ANÁLISIS — NOVEDADES DESDE EL ÚLTIMO ENVÍO*
-[Esta sección es OBLIGATORIA y debe incluir TODA nota nueva de: Cenital, Anfibia, CEPA, Econojournal, Va con firma, Kranear, Panamá Revista, El Cohete a la Luna, Le Monde Diplomatique, y de periodistas como Tokatlian, Genoud, Zaiat, u otros analistas definidos. Si hay nueva nota de alguno de estos medios/periodistas desde el último envío, VA SÍ O SÍ.]
+[Esta sección es OBLIGATORIA y debe incluir TODA nota nueva de: Cenital, Anfibia, CEPA, Econojournal, Va con firma, Kranear, Panamá Revista, El Cohete a la Luna, Le Monde Diplomatique, y de periodistas como Tokatlian, Genoud, Zaiat, u otros analistas definidos. Si hay nueva nota de alguno de estos medios/periodistas desde el último envío, VA SÍ O SÍ. Cada nota con 1-2 oraciones de resumen.]
 ▪️ *[Título de la nota]* — [Medio/Periodista]
-[Resumen del enfoque en 2 oraciones. Por qué es importante para la organización.]
+[Resumen breve del enfoque, 1-2 oraciones. Por qué es importante para la organización.]
 🔗 [link exacto acortado]
 
 *📊 COMPARACIÓN CON ENVÍO ANTERIOR*
-[Qué temas se actualizaron, qué temas nuevos aparecen, qué temas desaparecieron y por qué. Cuál fue la mejora de calidad respecto al envío anterior.]
+[Qué temas se actualizaron, cuáles son nuevos, cuáles desaparecieron. 3-4 líneas máximo.]
 
 —
 🤖 Patria Grande | [horario]`;
@@ -327,7 +349,23 @@ Deno.serve(async (req) => {
       withShortUrls.map((a: any) => a.url_short).filter(Boolean).join('\n')
     }`;
 
+    // Formatear fecha y hora actual en zona horaria de Argentina (UTC-3)
+    const nowArgentina = new Date(Date.now() - 3 * 60 * 60 * 1000);
+    const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+    const monthNames = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+                        'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+    const dayName = dayNames[nowArgentina.getUTCDay()];
+    const dayNum = nowArgentina.getUTCDate();
+    const monthName = monthNames[nowArgentina.getUTCMonth()];
+    const year = nowArgentina.getUTCFullYear();
+    const dateLong = `${dayName} ${dayNum} de ${monthName} de ${year}`;
+    const dateShort = `${String(dayNum).padStart(2, '0')}/${String(nowArgentina.getUTCMonth() + 1).padStart(2, '0')}`;
+
     const userPrompt = `Generá el ${digestType === 'personal' ? 'resumen personal' : 'boletín grupal'} "${scheduleName}".
+
+FECHA ACTUAL (usar SIEMPRE esta fecha, NO inventar otra):
+- Fecha larga: ${dateLong}
+- Fecha corta: ${dateShort}
 
 ${articlesContext}${novelContext}${previousContext}${learningContext}${allowedUrlsBlock}
 
@@ -338,16 +376,27 @@ RECORDATORIO CRÍTICO:
     ? 'Incluir TODAS las novedades de análisis desde el último envío.'
     : 'Máximo 2 nacionales + 1 internacional + 1 fuera de agenda + 2-3 análisis. 300-400 palabras total.'}
 - Perspectiva de género siempre.
-- Puntuación castellana: ¡! y ¿? donde corresponda.`;
+- Puntuación castellana: ¡! y ¿? donde corresponda.
+- Usá la fecha exacta que está arriba. NO generes una fecha distinta.`;
 
     // ── 7. Llamar a Gemini ────────────────────────────────────────────────────
     const systemPrompt = digestType === 'personal'
       ? buildPersonalSystemPrompt()
       : buildGroupSystemPrompt();
 
-    const digestMessage = await callGemini(GEMINI_API_KEY, systemPrompt, userPrompt);
+    // Resumen personal = más largo (hasta 8192 tokens ≈ 5000 palabras)
+    // Boletín grupal = acotado (4096 tokens ≈ 2500 palabras, target 300-400)
+    const maxTokens = digestType === 'personal' ? 8192 : 4096;
+
+    const { text: digestMessage, finishReason } = await callGemini(
+      GEMINI_API_KEY, systemPrompt, userPrompt, maxTokens
+    );
 
     if (!digestMessage) throw new Error('Gemini devolvió respuesta vacía');
+
+    if (finishReason === 'MAX_TOKENS') {
+      console.warn(`[${scheduleName}] Gemini llegó al límite de tokens (${maxTokens}). El mensaje puede estar truncado.`);
+    }
 
     // ── 8. Guardar en DB solo si es boletín grupal ────────────────────────────
     if (digestType === 'group') {
@@ -366,11 +415,13 @@ Formato: lista con guiones. Máximo 300 palabras en total.`;
 
       let learningNotes = '';
       try {
-        learningNotes = await callGemini(
+        const { text } = await callGemini(
           GEMINI_API_KEY,
           'Sos un editor crítico de boletines políticos. Respondé solo en castellano rioplatense.',
-          learningPrompt
+          learningPrompt,
+          1024
         );
+        learningNotes = text;
       } catch {
         learningNotes = 'Sin notas de aprendizaje generadas en este ciclo.';
       }
