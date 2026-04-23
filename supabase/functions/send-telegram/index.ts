@@ -30,7 +30,10 @@ async function sendTelegramMessage(botToken: string, chatId: string, text: strin
       body: JSON.stringify({
         chat_id: chatId,
         text: chunk,
-        parse_mode: 'Markdown',
+        // Sin parse_mode: enviamos texto plano. Motivo: Gemini a veces genera
+        // asteriscos sueltos (*) que rompen el parser de Markdown de Telegram
+        // con "Can't find end of the entity". WhatsApp interpreta los *negritas*
+        // al pegar el texto, así que no perdemos nada en el destino final.
         disable_web_page_preview: true,
       }),
     });
