@@ -144,13 +144,23 @@ Deno.serve(async (req) => {
     const errors: string[] = [];
     const skipped: string[] = [];
 
-    const BATCH_SIZE = 10;
+    // Batch más chico y delay entre batches para evitar rate-limit de Google News.
+    // Con 45 fuentes y batch de 5, son 9 batches. Con 1.5s entre cada uno,
+    // distribuimos las requests a ~3 por segundo (nivel "usuario normal").
+    const BATCH_SIZE = 5;
+    const DELAY_BETWEEN_BATCHES_MS = 1500;
+
     for (let i = 0; i < (sources?.length || 0); i += BATCH_SIZE) {
       if (Date.now() - startTime > MAX_RUNTIME_MS) {
         skipped.push(...sources!.slice(i).map((s: any) => s.name));
         break;
       }
       const batch = sources!.slice(i, i + BATCH_SIZE);
+
+      // Delay entre batches (no antes del primer batch)
+      if (i > 0) {
+        await new Promise(r => setTimeout(r, DELAY_BETWEEN_BATCHES_MS));
+      }
 
       const results = await Promise.allSettled(
         batch.map(async (source: any) => {
