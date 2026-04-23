@@ -49,22 +49,47 @@ async function callGemini(
   maxOutputTokens = 4096
 ): Promise<{ text: string; finishReason: string }> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: `${systemPrompt}\n\n---\n\n${userPrompt}` }] }],
-      generationConfig: { temperature: 0.7, maxOutputTokens },
-    }),
+  const body = JSON.stringify({
+    contents: [{ role: 'user', parts: [{ text: `${systemPrompt}\n\n---\n\n${userPrompt}` }] }],
+    generationConfig: { temperature: 0.7, maxOutputTokens },
   });
-  if (!res.ok) {
+
+  // Retry con backoff para errores temporales (503 overload, 429 rate limit)
+  const maxAttempts = 4;
+  const retryDelays = [1500, 4000, 9000]; // ms entre intentos
+
+  let lastError = '';
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const finishReason = data.candidates?.[0]?.finishReason || 'UNKNOWN';
+      return { text, finishReason };
+    }
+
     const err = await res.text();
-    throw new Error(`Gemini API error [${res.status}]: ${err}`);
+    lastError = `[${res.status}]: ${err}`;
+
+    // Reintentar solo en errores temporales
+    if (res.status === 503 || res.status === 429 || res.status >= 500) {
+      if (attempt < maxAttempts - 1) {
+        console.warn(`Gemini ${res.status}, reintentando en ${retryDelays[attempt]}ms (intento ${attempt + 1}/${maxAttempts})...`);
+        await new Promise(r => setTimeout(r, retryDelays[attempt]));
+        continue;
+      }
+    }
+
+    // Error definitivo (4xx no-429, o último intento fallido)
+    throw new Error(`Gemini API error ${lastError}`);
   }
-  const data = await res.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-  const finishReason = data.candidates?.[0]?.finishReason || 'UNKNOWN';
-  return { text, finishReason };
+
+  throw new Error(`Gemini API error después de ${maxAttempts} intentos: ${lastError}`);
 }
 
 // ── Clasificación de artículos ────────────────────────────────────────────────
@@ -386,9 +411,9 @@ RECORDATORIO CRÍTICO:
       ? buildPersonalSystemPrompt()
       : buildGroupSystemPrompt();
 
-    // Resumen personal = más largo (hasta 8192 tokens ≈ 5000 palabras)
+    // Resumen personal = más largo (hasta 16384 tokens ≈ 10000 palabras)
     // Boletín grupal = acotado (4096 tokens ≈ 2500 palabras, target 300-400)
-    const maxTokens = digestType === 'personal' ? 8192 : 4096;
+    const maxTokens = digestType === 'personal' ? 16384 : 4096;
 
     const { text: digestMessage, finishReason } = await callGemini(
       GEMINI_API_KEY, systemPrompt, userPrompt, maxTokens
