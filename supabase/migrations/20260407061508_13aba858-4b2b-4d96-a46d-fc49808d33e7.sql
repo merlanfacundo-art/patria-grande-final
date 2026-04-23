@@ -1,0 +1,1 @@
+UPDATE scraped_articles SET is_used_in_digest = false WHERE is_used_in_digest = true;
