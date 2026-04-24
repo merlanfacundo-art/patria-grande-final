@@ -61,9 +61,12 @@ async function callGemini(
     },
   });
 
-  // Retry con backoff para errores temporales (503 overload, 429 rate limit)
-  const maxAttempts = 4;
-  const retryDelays = [1500, 4000, 9000]; // ms entre intentos
+  // Retry con backoff para errores temporales (503 overload, 429 rate limit, 5xx)
+  // 8 intentos con backoff creciente — total ~2 minutos de espera acumulada.
+  // Gemini 2.5 Flash en free tier se satura seguido, pero usualmente se
+  // desahoga en 30-90 segundos.
+  const maxAttempts = 8;
+  const retryDelays = [1500, 3000, 6000, 10000, 15000, 20000, 30000]; // ms entre intentos
 
   let lastError = '';
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -77,6 +80,9 @@ async function callGemini(
       const data = await res.json();
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
       const finishReason = data.candidates?.[0]?.finishReason || 'UNKNOWN';
+      if (attempt > 0) {
+        console.log(`Gemini respondió OK en el intento ${attempt + 1}/${maxAttempts}`);
+      }
       return { text, finishReason };
     }
 
