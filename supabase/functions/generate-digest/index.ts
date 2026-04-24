@@ -51,7 +51,14 @@ async function callGemini(
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
   const body = JSON.stringify({
     contents: [{ role: 'user', parts: [{ text: `${systemPrompt}\n\n---\n\n${userPrompt}` }] }],
-    generationConfig: { temperature: 0.7, maxOutputTokens },
+    generationConfig: {
+      temperature: 0.7,
+      maxOutputTokens,
+      // Gemini 2.5 Flash tiene "thinking mode" activado por defecto, que
+      // consume tokens del budget sin aparecer en la salida. Lo desactivamos
+      // para que todos los tokens vayan al mensaje visible.
+      thinkingConfig: { thinkingBudget: 0 },
+    },
   });
 
   // Retry con backoff para errores temporales (503 overload, 429 rate limit)
@@ -412,8 +419,10 @@ RECORDATORIO CRÍTICO:
       : buildGroupSystemPrompt();
 
     // Resumen personal = más largo (hasta 16384 tokens ≈ 10000 palabras)
-    // Boletín grupal = acotado (4096 tokens ≈ 2500 palabras, target 300-400)
-    const maxTokens = digestType === 'personal' ? 16384 : 4096;
+    // Boletín grupal = target 300-400 palabras, pero reservamos 8192 tokens
+    // porque Gemini 2.5 Flash consume tokens en "pensamiento" interno que no
+    // se ve en la salida. Con 4096 se truncaba.
+    const maxTokens = digestType === 'personal' ? 16384 : 8192;
 
     const { text: digestMessage, finishReason } = await callGemini(
       GEMINI_API_KEY, systemPrompt, userPrompt, maxTokens
@@ -459,47 +468,4 @@ Formato: lista con guiones. Máximo 300 palabras en total.`;
           telegram_message: digestMessage,
           articles_count: articlesToUse.length,
           status: 'pending',
-          learning_notes: learningNotes,
-        })
-        .select()
-        .single();
-
-      if (digestErr) throw digestErr;
-
-      return new Response(
-        JSON.stringify({
-          success: true,
-          digest_id: digest.id,
-          digest_type: 'group',
-          articles_count: articlesToUse.length,
-          noticias_count: noticias.length,
-          analisis_count: analisis.length,
-          message_length: digestMessage.length,
-        }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // ── Resumen personal: solo devolver el mensaje, no guardar en DB ──────────
-    return new Response(
-      JSON.stringify({
-        success: true,
-        digest_type: 'personal',
-        message: digestMessage,
-        articles_count: articlesToUse.length,
-        noticias_count: noticias.length,
-        analisis_count: analisis.length,
-        novel_analysis_count: novelAnalisisShort.length,
-        message_length: digestMessage.length,
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-
-  } catch (error) {
-    console.error('Error generate-digest:', error);
-    return new Response(
-      JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Unknown' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
-  }
-});
+          learni
