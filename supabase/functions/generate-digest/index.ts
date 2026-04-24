@@ -468,4 +468,47 @@ Formato: lista con guiones. Máximo 300 palabras en total.`;
           telegram_message: digestMessage,
           articles_count: articlesToUse.length,
           status: 'pending',
-          learni
+          learning_notes: learningNotes,
+        })
+        .select()
+        .single();
+
+      if (digestErr) throw digestErr;
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          digest_id: digest.id,
+          digest_type: 'group',
+          articles_count: articlesToUse.length,
+          noticias_count: noticias.length,
+          analisis_count: analisis.length,
+          message_length: digestMessage.length,
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // ── Resumen personal: solo devolver el mensaje, no guardar en DB ──────────
+    return new Response(
+      JSON.stringify({
+        success: true,
+        digest_type: 'personal',
+        message: digestMessage,
+        articles_count: articlesToUse.length,
+        noticias_count: noticias.length,
+        analisis_count: analisis.length,
+        novel_analysis_count: novelAnalisisShort.length,
+        message_length: digestMessage.length,
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+
+  } catch (error) {
+    console.error('Error generate-digest:', error);
+    return new Response(
+      JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Unknown' }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+});
