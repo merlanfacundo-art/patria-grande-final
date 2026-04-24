@@ -27,11 +27,11 @@ function toTelegramHTML(text: string): string {
 async function sendTelegramMessage(botToken: string, chatId: string, text: string): Promise<void> {
   // Red de seguridad: si el mensaje no termina con el footer esperado,
   // agregamos un aviso al final para que sepamos que fue truncado.
-  // El footer esperado termina con "Patria Grande | HH:MM" o similar.
+  // Aceptamos tanto "🤖 Patria Grande" como "✌️🇦🇷 *Patria Grande*" como cierres válidos.
   let safeText = text.trimEnd();
-  const hasFooter = /🤖\s*Patria Grande/.test(safeText.slice(-200));
+  const hasFooter = /(?:🤖|✌️|Patria Grande)/.test(safeText.slice(-300));
   if (!hasFooter) {
-    safeText += '\n\n⚠️ [Mensaje truncado por límite de tokens. Revisar prompt.]\n🤖 Patria Grande';
+    safeText += '\n\n⚠️ [Mensaje truncado por límite de tokens. Revisar prompt.]\n✌️🇦🇷 Patria Grande';
   }
 
   // Partir el texto en chunks de hasta 4000 chars respetando saltos de línea
