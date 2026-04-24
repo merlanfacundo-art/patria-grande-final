@@ -20,18 +20,21 @@ Deno.serve(async (req) => {
 
   try {
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
-    const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
     const body = await req.json().catch(() => ({}));
     const scheduleName: string = body.schedule_name || 'Manual';
     const config = SCHEDULE_CONFIG[scheduleName] || SCHEDULE_CONFIG['Manual'];
 
+    // Las funciones internas (scrape-news, generate-digest, send-telegram)
+    // tienen verify_jwt = false en config.toml, así que no requieren auth.
+    // Solo Content-Type es necesario.
     const headers = {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
     };
 
-    const callFn = async (name: string, payload: any, timeoutMs = 55000) => {
+    // Timeout alto por default: Gemini puede tomar hasta 2 min en casos de saturación
+    // (8 retries con backoff creciente). +30s de margen para scrape y envío.
+    const callFn = async (name: string, payload: any, timeoutMs = 180000) => {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
