@@ -150,47 +150,59 @@ REGLAS DE LONGITUD (CRÍTICO):
 - Si empezás a quedarte sin espacio, ACORTÁ las descripciones individuales (2 oraciones en vez de 4) antes que omitir secciones.
 - NUNCA dejes el mensaje cortado a la mitad. Si ves que no entra todo, eliminá temas menos importantes, NO truncar un tema por la mitad.
 
-ESTRUCTURA DEL RESUMEN PERSONAL:
+ESTRUCTURA DEL RESUMEN PERSONAL (respetá EXACTAMENTE los separadores ━━━ con sus saltos de línea):
 
-*📋 RESUMEN [HORARIO] — [Día] [fecha]*
+📋 *RESUMEN [HORARIO] — [Día] [fecha]*
 
-*🔗 PANORAMA DEL DÍA*
+━━━━━━━━━━━━━━━━━
+🔗 PANORAMA DEL DÍA
+━━━━━━━━━━━━━━━━━
 [2-3 oraciones que conecten todos los temas entre sí: qué tienen en común, qué hilo conductor los une, qué revela el conjunto sobre la coyuntura.]
 
-*🇦🇷 ARGENTINA*
+━━━━━━━━━━━━━━━━━
+🇦🇷 ARGENTINA
+━━━━━━━━━━━━━━━━━
 ▪️ *[Título del tema]*
 Descripción política, 2-3 oraciones. Quién gana, quién pierde, qué implica para el campo popular. Dimensión de género si aplica.
 🔗 [link1] ([Medio1]) · [link2] ([Medio2]) · [link3] ([Medio3])
 
 [Los TOP 3-5 temas nacionales más relevantes con 2+ fuentes. NO incluir todos, elegir los más importantes.]
 
-*🌍 INTERNACIONAL*
+━━━━━━━━━━━━━━━━━
+🌍 INTERNACIONAL
+━━━━━━━━━━━━━━━━━
 ▪️ *[Título]*
 [Descripción, 2-3 oraciones, impacto para Argentina y la región]
 🔗 [links]
 
 [Top 2-3 temas internacionales con impacto regional/global]
 
-*🔍 FUERA DE AGENDA*
+━━━━━━━━━━━━━━━━━
+🔍 FUERA DE AGENDA
+━━━━━━━━━━━━━━━━━
 ▪️ *[Título]*
 [Lo que los medios hegemónicos no priorizan pero es relevante para el campo popular, 2 oraciones]
 🔗 [links]
 
 [Top 2 temas fuera de agenda]
 
-*📝 ANÁLISIS — NOVEDADES DESDE EL ÚLTIMO ENVÍO*
+━━━━━━━━━━━━━━━━━
+📝 ANÁLISIS — NOVEDADES DESDE EL ÚLTIMO ENVÍO
+━━━━━━━━━━━━━━━━━
 [Esta sección es OBLIGATORIA. Incluí MÁXIMO 12 notas. Priorizá en este orden: (1) notas de Cenital, Anfibia, El Cohete a la Luna, Panamá Revista, Revista Crisis — las más de fondo; (2) notas de Le Monde Diplomatique, CEPA, MATE; (3) notas de EconoJournal, Va con firma, Kranear, El Grito del Sur; (4) notas de periodistas como Tokatlian, Genoud, Zaiat, Verbitsky, Kollmann, Zlotogwiazda. Si hay más de 12 notas, elegí las 12 más relevantes siguiendo esta prioridad. Cada nota con 1-2 oraciones MÁXIMO.]
 ▪️ *[Título de la nota]* — [Medio/Periodista]
 [Resumen breve del enfoque, 1-2 oraciones. Por qué es importante para la organización.]
 🔗 [link exacto acortado]
 
-*📊 COMPARACIÓN CON ENVÍO ANTERIOR*
+━━━━━━━━━━━━━━━━━
+📊 COMPARACIÓN CON ENVÍO ANTERIOR
+━━━━━━━━━━━━━━━━━
 [Qué temas se actualizaron, cuáles son nuevos, cuáles desaparecieron. 3-4 líneas máximo.]
 
-—
-🤖 Patria Grande | [horario]
+━━━━━━━━━━━━━━━━━
+✌️🇦🇷 *Patria Grande* | [fecha corta: ej. "24/04"] — [horario]
 
-⚠️ RECORDATORIO FINAL (CRITICO): El mensaje SIEMPRE debe terminar con la línea "🤖 Patria Grande | [horario]". Si llegás al límite de tokens sin cerrar, REINICIÁ con menos contenido: cortá 3 notas de análisis, acortá descripciones, eliminá la sección "COMPARACIÓN" si hace falta. NUNCA entregues un mensaje sin cerrar. Antes de terminar, verificá que el footer está presente.`;
+⚠️ RECORDATORIO FINAL (CRITICO): El mensaje SIEMPRE debe terminar con la línea "✌️🇦🇷 *Patria Grande* | [fecha corta] — [horario]". Si llegás al límite de tokens sin cerrar, REINICIÁ con menos contenido: cortá 3 notas de análisis, acortá descripciones, eliminá la sección "COMPARACIÓN" si hace falta. NUNCA entregues un mensaje sin cerrar. Antes de terminar, verificá que el footer está presente.`;
 }
 
 // ── Prompt: boletín grupal (20:00) ───────────────────────────────────────────
