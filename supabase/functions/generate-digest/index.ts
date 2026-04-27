@@ -47,8 +47,7 @@ async function callGemini(
   systemPrompt: string,
   userPrompt: string,
   maxOutputTokens = 4096
-): Promise<{ text: string; finishReason: string }> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+): Promise<{ text: string; finishReason: string; modelUsed: string }> {
   const body = JSON.stringify({
     contents: [{ role: 'user', parts: [{ text: `${systemPrompt}\n\n---\n\n${userPrompt}` }] }],
     generationConfig: {
@@ -61,48 +60,63 @@ async function callGemini(
     },
   });
 
-  // Retry con backoff para errores temporales (503 overload, 429 rate limit, 5xx)
-  // 8 intentos con backoff creciente — total ~2 minutos de espera acumulada.
-  // Gemini 2.5 Flash en free tier se satura seguido, pero usualmente se
-  // desahoga en 30-90 segundos.
-  const maxAttempts = 8;
-  const retryDelays = [1500, 3000, 6000, 10000, 15000, 20000, 30000]; // ms entre intentos
+  // Cascada de modelos: si uno está saturado, probamos el siguiente.
+  // Ordenados de mejor a más disponible. Todos free tier.
+  const models = [
+    'gemini-2.5-flash',       // mejor calidad, más demandado
+    'gemini-2.0-flash',       // versión anterior, menos congestionada
+    'gemini-1.5-flash',       // muy disponible, calidad suficiente para resúmenes
+  ];
+
+  // Por modelo: 4 intentos con backoff (total ~25s por modelo)
+  const retryDelays = [1500, 4000, 8000];
 
   let lastError = '';
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body,
-    });
 
-    if (res.ok) {
-      const data = await res.json();
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      const finishReason = data.candidates?.[0]?.finishReason || 'UNKNOWN';
-      if (attempt > 0) {
-        console.log(`Gemini respondió OK en el intento ${attempt + 1}/${maxAttempts}`);
+  for (const model of models) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        const finishReason = data.candidates?.[0]?.finishReason || 'UNKNOWN';
+        if (model !== models[0] || attempt > 0) {
+          console.log(`Gemini OK con modelo ${model} (intento ${attempt + 1})`);
+        }
+        return { text, finishReason, modelUsed: model };
       }
-      return { text, finishReason };
-    }
 
-    const err = await res.text();
-    lastError = `[${res.status}]: ${err}`;
+      const err = await res.text();
+      lastError = `${model} [${res.status}]: ${err.substring(0, 200)}`;
 
-    // Reintentar solo en errores temporales
-    if (res.status === 503 || res.status === 429 || res.status >= 500) {
-      if (attempt < maxAttempts - 1) {
-        console.warn(`Gemini ${res.status}, reintentando en ${retryDelays[attempt]}ms (intento ${attempt + 1}/${maxAttempts})...`);
+      // Errores temporales: reintentar con el mismo modelo
+      const isTransient = res.status === 503 || res.status === 429 || res.status >= 500;
+
+      if (isTransient && attempt < 3) {
+        console.warn(`${model} ${res.status}, reintentando en ${retryDelays[attempt]}ms (intento ${attempt + 1}/4)...`);
         await new Promise(r => setTimeout(r, retryDelays[attempt]));
         continue;
       }
-    }
 
-    // Error definitivo (4xx no-429, o último intento fallido)
-    throw new Error(`Gemini API error ${lastError}`);
+      // Si es error 4xx (no recuperable) o se agotaron los retries de este modelo,
+      // pasar al siguiente modelo de la cascada.
+      if (!isTransient) {
+        console.error(`${model} error definitivo ${res.status}, no se reintenta`);
+      } else {
+        console.warn(`${model} agotó retries, pasando al siguiente modelo de la cascada`);
+      }
+      break;
+    }
   }
 
-  throw new Error(`Gemini API error después de ${maxAttempts} intentos: ${lastError}`);
+  throw new Error(`Gemini API error - todos los modelos fallaron. Último: ${lastError}`);
 }
 
 // ── Clasificación de artículos ────────────────────────────────────────────────
@@ -138,7 +152,7 @@ Este resumen es EXTENSO, DETALLADO y de uso interno — no va al grupo.
 
 REGLAS DE CONTENIDO:
 - Lenguaje militante peronista, claro y directo.
-- Perspectiva de género SIEMPRE: visibilizá cómo los temas impactan diferenciadamente en mujeres, LGBTIQ+ y disidencias. Si un tema no tiene dimensión de género, igual buscala.
+- Perspectiva de género NATURAL: cuando un tema tiene dimensión de género real (afecta diferenciadamente a mujeres, LGBTIQ+ y disidencias, o los involucra como protagonistas), incluirla con claridad. Cuando un tema NO tiene esa dimensión (ej: política internacional general, decisiones macroeconómicas estructurales que afectan a toda la población), NO la fuerces. Es preferible omitirla a inventarla. La perspectiva de género se nota en QUÉ noticias se eligen y cómo se cuentan, no en agregar una frase forzada al final de cada tema.
 - Puntuación en castellano correcta: usá ¡! y ¿? donde corresponda.
 - Calidad alta: solo incluir noticias con al menos 2 fuentes distintas. Descartar noticias débiles.
 - Todos los links YA ESTÁN ACORTADOS en la lista de artículos: usalos textualmente, no los modifiques.
@@ -148,7 +162,7 @@ REGLAS DE LONGITUD (CRÍTICO):
 - Si tenés mucho material, priorizá así:
   1. Panorama del día (obligatorio, corto).
   2. Top 3-5 temas nacionales más relevantes (no todos, los MÁS importantes).
-  3. Top 2-3 temas internacionales con impacto para Argentina.
+  3. Top 3-4 temas internacionales (mezcla obligatoria: 1-2 de alto impacto global + 1-2 regionales).
   4. Top 2 temas fuera de agenda.
   5. Análisis: TODAS las novedades de medios/periodistas definidos (prioridad absoluta).
   6. Comparación con envío anterior (corta).
@@ -178,10 +192,10 @@ Descripción política, 2-3 oraciones. Quién gana, quién pierde, qué implica 
 🌍 INTERNACIONAL
 ━━━━━━━━━━━━━━━━━
 ▪️ *[Título]*
-[Descripción, 2-3 oraciones, impacto para Argentina y la región]
+[Descripción, 2-3 oraciones]
 🔗 [links]
 
-[Top 2-3 temas internacionales con impacto regional/global]
+[Top 3-4 temas internacionales. INCLUIR OBLIGATORIAMENTE eventos de ALTO IMPACTO GLOBAL aunque NO toquen directamente a Argentina: atentados políticos, elecciones en potencias, conflictos bélicos, decisiones del FMI/BM/G20, cumbres internacionales, crisis institucionales en EEUU/UE/China/Rusia. Junto con esos, también incluir 1-2 temas con impacto en Argentina o América Latina: situación en países hermanos, integración regional, luchas populares latinoamericanas. La distancia ideológica con un actor político no es razón para omitir un evento mayor que lo involucre — lo cubrimos desde nuestra perspectiva crítica.]
 
 ━━━━━━━━━━━━━━━━━
 🔍 FUERA DE AGENDA
@@ -219,15 +233,16 @@ Generás el *boletín grupal nocturno* para enviar a un grupo de WhatsApp con si
 El boletín se va a COPIAR Y PEGAR en WhatsApp desde Telegram.
 
 REGLAS CRÍTICAS:
-- EXTENSIÓN: 300-400 palabras en total. No más. Es para leer en el celular en 2 minutos.
+- EXTENSIÓN: 400-500 palabras en total. Es para leer en el celular en 2-3 minutos.
 - Lenguaje militante pero ACCESIBLE: sin jerga interna, sin dar nada por sabido.
-- Perspectiva de género SIEMPRE: visibilizá impactos diferenciados en mujeres, LGBTIQ+ y disidencias.
+- Perspectiva de género NATURAL: incluila cuando el tema tiene dimensión de género real (afecta diferenciadamente a mujeres, LGBTIQ+ y disidencias, o los involucra como protagonistas). Cuando el tema NO tiene esa dimensión, NO la fuerces. Es mejor omitirla que inventar una conexión rebuscada. Se nota en qué noticias se eligen y cómo se cuentan, no en agregar una frase forzada al final.
 - Puntuación castellana correcta: ¡! y ¿? donde corresponda.
-- Calidad alta: máximo 2 temas nacionales, 1 internacional, 1 fuera de agenda, 2-3 análisis.
-- Solo incluir noticias con 2+ fuentes. Descartar noticias sin respaldo.
+- Calidad alta: máximo 2 temas nacionales, 2 internacionales (uno global + uno regional), 1 de Quilmes, 1 fuera de agenda, 2 análisis.
+- Solo incluir noticias con 2+ fuentes. Descartar noticias sin respaldo. EXCEPCIÓN: la noticia de Quilmes puede tener 1 sola fuente local (InfoQuilmes, Inforegión).
 - Todos los links YA ESTÁN ACORTADOS: usalos textualmente.
 - Los links van al FINAL de cada ítem, no en el medio del texto.
-- Cada ítem DEBE tener contexto explicativo: qué pasó Y por qué importa para la gente común.
+- DESCRIPCIONES BREVES: 2 oraciones máximo por tema. Que sean concisas y filosas, no largas y descriptivas.
+- Cada ítem DEBE explicar: qué pasó Y por qué importa.
 
 ESTRUCTURA EXACTA (respetá emojis, separadores y orden):
 
@@ -237,25 +252,36 @@ ESTRUCTURA EXACTA (respetá emojis, separadores y orden):
 ━━━━━━━━━━━━━━━━━
 🔗 LOS TEMAS DE HOY
 ━━━━━━━━━━━━━━━━━
-[2-3 oraciones que conecten todos los temas. Qué hilo conductor los une. Tono político claro.]
+[2-3 oraciones que conecten los temas principales. Qué hilo conductor los une. Tono político claro.]
 
 ━━━━━━━━━━━━━━━━━
 🇦🇷 ARGENTINA
 ━━━━━━━━━━━━━━━━━
 ▪️ *[Título accesible — sin tecnicismos]*
-[2-3 oraciones: qué pasó + por qué le importa a la gente. Incluir dimensión de género si aplica.]
+[2 oraciones: qué pasó + por qué le importa a la gente. Sumar dimensión de género solo si el tema lo tiene de forma natural.]
 🔗 [link1] ([Medio1]) · [link2] ([Medio2])
 
 ▪️ *[Segundo tema nacional]*
-[ídem]
+[ídem, 2 oraciones]
 🔗 [links]
 
 ━━━━━━━━━━━━━━━━━
 🌍 EL MUNDO
 ━━━━━━━━━━━━━━━━━
-▪️ *[Tema internacional relevante para Argentina/la región]*
-[2 oraciones: qué pasó + conexión con Argentina o el campo popular regional]
+▪️ *[Tema internacional de alto impacto global]*
+[2 oraciones: qué pasó + por qué importa, incluso si NO toca directamente a Argentina. Por ejemplo: atentados políticos relevantes, elecciones en potencias, conflictos bélicos, decisiones del FMI o BM, cumbres internacionales, eventos en EEUU/UE/China/Rusia. Si hay un evento mundial mayor, va acá obligatoriamente, aun si la cobertura es desde perspectiva crítica.]
 🔗 [links]
+
+▪️ *[Tema internacional con impacto en Argentina o América Latina]*
+[2 oraciones: qué pasó + conexión con Argentina, la región o el campo popular regional. Por ejemplo: situaciones políticas en países hermanos, integración regional, crisis económicas en países vecinos, luchas populares en Latinoamérica.]
+🔗 [links]
+
+━━━━━━━━━━━━━━━━━
+📍 QUILMES
+━━━━━━━━━━━━━━━━━
+▪️ *[Una sola noticia relevante de Quilmes / sur GBA]*
+[1-2 oraciones: qué pasó + por qué le interesa a vecinos y vecinas. Tema de política municipal, conflictos locales, gestión, organización barrial. Si en el día no hay nada relevante de Quilmes, omitir la sección entera (no inventar, no rellenar con un tema menor).]
+🔗 [link] ([Medio: InfoQuilmes / Inforegión / otro local])
 
 ━━━━━━━━━━━━━━━━━
 🔍 LO QUE LA CORPORACIÓN MEDIÁTICA OCULTA
@@ -427,7 +453,7 @@ RECORDATORIO CRÍTICO:
 - ${digestType === 'personal'
     ? 'Incluir TODAS las novedades de análisis desde el último envío.'
     : 'Máximo 2 nacionales + 1 internacional + 1 fuera de agenda + 2-3 análisis. 300-400 palabras total.'}
-- Perspectiva de género siempre.
+- Perspectiva de género donde aplique naturalmente.
 - Puntuación castellana: ¡! y ¿? donde corresponda.
 - Usá la fecha exacta que está arriba. NO generes una fecha distinta.`;
 
@@ -442,7 +468,7 @@ RECORDATORIO CRÍTICO:
     // se ve en la salida. Con 4096 se truncaba.
     const maxTokens = digestType === 'personal' ? 16384 : 8192;
 
-    const { text: digestMessage, finishReason } = await callGemini(
+    const { text: digestMessage, finishReason, modelUsed } = await callGemini(
       GEMINI_API_KEY, systemPrompt, userPrompt, maxTokens
     );
 
@@ -451,6 +477,8 @@ RECORDATORIO CRÍTICO:
     if (finishReason === 'MAX_TOKENS') {
       console.warn(`[${scheduleName}] Gemini llegó al límite de tokens (${maxTokens}). El mensaje puede estar truncado.`);
     }
+
+    console.log(`[${scheduleName}] Modelo usado: ${modelUsed}`);
 
     // ── 8. Guardar en DB solo si es boletín grupal ────────────────────────────
     if (digestType === 'group') {
