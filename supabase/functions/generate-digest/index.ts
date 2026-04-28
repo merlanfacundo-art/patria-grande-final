@@ -606,7 +606,7 @@ const AREAS: AreaConfig[] = [
   {
     emoji: '🤝',
     nombre: 'BRIGADAS SOLIDARIAS',
-    descripcion: 'situación de calle, comedores, asistencia social, frío e invierno, soup kitchens, organizaciones territoriales, hambre, emergencia habitacional, ollas populares',
+    descripcion: 'situación de personas en situación de calle, condiciones materiales en barrios populares y villas, economía popular, trabajadoras y trabajadores de la economía popular (MTE, UTEP, cartoneros, vendedores ambulantes), organizaciones de base territorial, comedores comunitarios, merenderos, ollas populares, asistencia alimentaria, emergencia habitacional, frío e invierno en sectores vulnerables, IFE/AUH/programas sociales. NO incluir economía macro general, política partidaria sin vínculo territorial, seguridad/inseguridad genérica, ni declaraciones eclesiásticas amplias.',
   },
 ];
 
@@ -670,7 +670,7 @@ Generás el *boletín semanal del sábado* que va al grupo de difusión. Reúne 
 - 📚 Educación
 - 🏥 Salud
 - ♀️ Género
-- 🤝 Brigadas Solidarias (acciones para personas en situación de calle, ollas populares, comedores, asistencia social)
+- 🤝 Brigadas Solidarias (foco específico: personas en situación de calle, barrios populares y villas, economía popular, organizaciones territoriales de base como MTE/UTEP, comedores y merenderos, asistencia alimentaria, emergencia habitacional, programas sociales como IFE/AUH. NO entran temas de economía macro genérica, política partidaria sin vínculo territorial, ni inseguridad/seguridad si no toca a estos sectores.)
 
 ESTRUCTURA POR ÁREA:
 Cada área tiene 3 niveles geográficos ESTRICTAMENTE DEFINIDOS:
@@ -688,6 +688,14 @@ REGLAS DE CONTENIDO:
 - Todos los links YA ESTÁN ACORTADOS (tinyurl): usalos textualmente, NO modifiques nada.
 - Solo usar URLs de la lista de "URLs PERMITIDAS" del contexto del usuario.
 - DESCRIPCIONES BREVES: 2 oraciones por nota máximo.
+
+REGLA CRÍTICA DE CALIDAD DE LINKS:
+Cada artículo del contexto tiene un TÍTULO específico. SOLO incluir notas cuyo título describa una noticia concreta. NO incluir nunca:
+- Títulos genéricos tipo "agenda", "categoría", "sección", "novedades", "todas las noticias"
+- Títulos que sean nombres de secciones del medio (ej: "Cultura - InfoQuilmes", "Educación", "Género")
+- Títulos que sean solo el nombre del medio o subdominios
+- URLs que terminen en /category/, /seccion/, /tag/, /agenda, /todos, etc.
+Si para algún nivel solo hay material de ese tipo (linkos de sección sin nota concreta), preferí OMITIR ese nivel antes que incluir un link basura. La regla de combinación Provincial/Municipal aplica también si una de las dos solo tiene links de sección.
 
 REGLA DE COMBINACIÓN PROVINCIAL/MUNICIPAL:
 Si para alguna área no hay material provincial O no hay material municipal en la ventana semanal, combiná los dos niveles en uno solo: "🏛️📍 *Provincial/Municipal:*". Si no hay material en ninguno de los dos, omití ambas filas y dejá solo la fila Nacional.
@@ -723,10 +731,44 @@ async function handleWeeklyDigest(
     );
   }
 
+  // Filtrar artículos que parecen páginas de sección/agenda en lugar de notas concretas.
+  // Sin esto, Gemini elige links basura cuando no encuentra nada mejor.
+  const isLikelySectionPage = (a: any): boolean => {
+    const url = (a.url || '').toLowerCase();
+    const title = (a.title || '').toLowerCase().trim();
+    // URLs sospechosas (paths de sección, categoría, tag, agenda)
+    if (/\/(category|categoria|categorias|seccion|secciones|sección|tag|tags|agenda|todos|todas|archivo|archivos)\b/.test(url)) return true;
+    // URL termina en "/" o el path es muy corto (probablemente home/sección)
+    const pathSegments = url.replace(/^https?:\/\/[^/]+/, '').split('/').filter(Boolean);
+    if (pathSegments.length <= 1) return true;
+    // Títulos genéricos típicos de páginas de sección
+    const genericTitles = [
+      /^(cultura|educaci[oó]n|salud|g[eé]nero|pol[ií]tica|deportes|sociedad|econom[ií]a)\s*[-|–—]/i,
+      /archivos?$/i,
+      /^agenda\b/i,
+      /\bsecci[oó]n\b/i,
+      /\bcategor[ií]a\b/i,
+    ];
+    if (genericTitles.some(re => re.test(title))) return true;
+    // Título muy corto (< 25 chars) suele ser sección, no nota
+    if (title.length < 25) return true;
+    return false;
+  };
+
+  const articlesFiltered = articles.filter((a: any) => !isLikelySectionPage(a));
+  console.log(`[weekly] Artículos descartados por ser páginas de sección: ${articles.length - articlesFiltered.length}`);
+
+  if (articlesFiltered.length === 0) {
+    return new Response(
+      JSON.stringify({ success: true, message: 'Tras filtrar, no quedaron artículos válidos' }),
+      { headers: corsHdrs }
+    );
+  }
+
   // Acortar URLs en batch
-  const allUrls = articles.map((a: any) => a.url).filter(Boolean);
+  const allUrls = articlesFiltered.map((a: any) => a.url).filter(Boolean);
   const shortUrlMap = await shortenAll(allUrls);
-  const withShort = articles.map((a: any) => ({
+  const withShort = articlesFiltered.map((a: any) => ({
     ...a,
     url_short: shortUrlMap.get(a.url) || a.url,
   }));
