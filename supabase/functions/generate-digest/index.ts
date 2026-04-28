@@ -319,9 +319,16 @@ Deno.serve(async (req) => {
     );
 
     const body = await req.json().catch(() => ({}));
-    // digest_type: 'personal' | 'group'
-    const digestType: 'personal' | 'group' = body.digest_type || 'group';
+    // digest_type: 'personal' | 'group' | 'weekly'
+    const digestType: 'personal' | 'group' | 'weekly' = body.digest_type || 'group';
     const scheduleName: string = body.schedule_name || 'Manual';
+
+    // ── Rama: boletín semanal (sábados 10:00) ─────────────────────────────────
+    // Lógica completamente separada del flujo diario. NO modifica nada del
+    // pipeline de personal/group.
+    if (digestType === 'weekly') {
+      return await handleWeeklyDigest(supabase, GEMINI_API_KEY, scheduleName);
+    }
 
     // ── 1. Obtener artículos de las últimas 24hs ──────────────────────────────
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -558,3 +565,238 @@ Formato: lista con guiones. Máximo 300 palabras en total.`;
     );
   }
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// MÓDULO: BOLETÍN SEMANAL (sábados 10:00 ART)
+// ═════════════════════════════════════════════════════════════════════════════
+// Estructura: 5 áreas de trabajo de Patria Grande Quilmes × 3 niveles cada una.
+// Áreas: Cultura, Educación, Salud, Género, Brigadas Solidarias.
+// Niveles: Nacional, Provincial (Buenos Aires), Municipal (Quilmes).
+// Ventana: 7 días.
+// Generación: 2 llamadas a Gemini en paralelo, después se concatenan.
+
+interface AreaConfig {
+  emoji: string;
+  nombre: string;
+  descripcion: string;
+}
+
+const AREAS: AreaConfig[] = [
+  {
+    emoji: '🎭',
+    nombre: 'CULTURA',
+    descripcion: 'política cultural, financiamiento, instituciones, festivales, espacios culturales, industrias culturales, libros, cine, música, teatro, patrimonio',
+  },
+  {
+    emoji: '📚',
+    nombre: 'EDUCACIÓN',
+    descripcion: 'educación pública, presupuesto, paritarias docentes, universidades, escuelas, infancias, conflictos gremiales del sector, leyes educativas',
+  },
+  {
+    emoji: '🏥',
+    nombre: 'SALUD',
+    descripcion: 'salud pública, hospitales, presupuesto, conflictos del sector, vacunas, salud mental, salud sexual, ANMAT, PAMI, obras sociales, medicamentos',
+  },
+  {
+    emoji: '♀️',
+    nombre: 'GÉNERO',
+    descripcion: 'políticas de género, violencia de género, femicidios/travesticidios, leyes de género, derechos LGBTIQ+, aborto, cuidados, maternidad, brecha salarial, paridad',
+  },
+  {
+    emoji: '🤝',
+    nombre: 'BRIGADAS SOLIDARIAS',
+    descripcion: 'situación de calle, comedores, asistencia social, frío e invierno, soup kitchens, organizaciones territoriales, hambre, emergencia habitacional, ollas populares',
+  },
+];
+
+function buildWeeklyPromptForAreas(
+  areas: AreaConfig[],
+  articlesContext: string,
+  dateLong: string,
+  isFirstChunk: boolean,
+  isLastChunk: boolean
+): string {
+  const intro = isFirstChunk
+    ? `🗞️ *PATRIA GRANDE — Resumen Semanal*
+📅 ${dateLong}
+
+━━━━━━━━━━━━━━━━━
+🔗 LA SEMANA EN PATRIA GRANDE
+━━━━━━━━━━━━━━━━━
+[Generá un panorama integrador de 3-4 oraciones que conecte temáticamente las 5 áreas de trabajo de la semana: cultura, educación, salud, género y brigadas solidarias. Tono militante peronista.]
+
+`
+    : '';
+
+  const cierre = isLastChunk
+    ? `
+
+━━━━━━━━━━━━━━━━━
+✌️🇦🇷 *Patria Grande* | Semanal — ${dateLong.split(' de ').slice(0, 2).join('/')}`
+    : '';
+
+  const areasInstrucciones = areas.map(area => `
+━━━━━━━━━━━━━━━━━
+${area.emoji} ${area.nombre}
+━━━━━━━━━━━━━━━━━
+🇦🇷 *Nacional:* [Una nota relevante a nivel nacional sobre ${area.descripcion}. 2 oraciones máximo: qué pasó + por qué importa.]
+🔗 [link acortado] ([Medio])
+
+🏛️ *Provincial:* [Una nota relevante de la Provincia de Buenos Aires sobre la misma área. 2 oraciones.]
+🔗 [link] ([Medio])
+
+📍 *Municipal:* [Una nota relevante de Quilmes / sur GBA sobre la misma área. 2 oraciones.]
+🔗 [link] ([Medio: InfoQuilmes / Inforegión / otro local])
+
+[REGLA DE COMBINACIÓN: si para esta área NO hay nota provincial O NO hay municipal en la semana, combiná las dos en una sola fila etiquetada como "🏛️📍 *Provincial/Municipal:*". Si NO hay nada en ninguno de los dos niveles, omití ambas filas (pero MANTENÉ la sección de área con el nivel Nacional). Es preferible omitir un nivel a inventar contenido.]
+`).join('\n');
+
+  return `${intro}${areasInstrucciones}${cierre}`;
+}
+
+function buildWeeklySystemPrompt(): string {
+  return `Sos el editor del boletín semanal de Patria Grande Quilmes, una organización peronista y popular argentina.
+
+Generás el *boletín semanal del sábado* que va al grupo de difusión. Reúne lo más importante de la semana organizado por las 5 áreas de trabajo concretas de la organización en Quilmes.
+
+ÁREAS DE TRABAJO:
+- 🎭 Cultura
+- 📚 Educación
+- 🏥 Salud
+- ♀️ Género
+- 🤝 Brigadas Solidarias (acciones para personas en situación de calle, ollas populares, comedores, asistencia social)
+
+ESTRUCTURA POR ÁREA:
+Cada área tiene 3 niveles: Nacional, Provincial (Buenos Aires), Municipal (Quilmes/sur GBA). En cada nivel se elige UNA noticia relevante de la semana — puede ser coyuntural, anuncio de medida política, conflicto, discusión pública, o nota de análisis.
+
+REGLAS DE CONTENIDO:
+- Lenguaje militante peronista, claro y directo, accesible para simpatizantes.
+- Perspectiva de género NATURAL: en el área de Género va de fondo; en otras áreas, solo cuando el tema lo amerita.
+- Puntuación castellana correcta: ¡! y ¿? donde corresponda.
+- Calidad alta: priorizar notas con respaldo, descartar rumores o títulos clickbait.
+- Todos los links YA ESTÁN ACORTADOS (tinyurl): usalos textualmente, NO modifiques nada.
+- Solo usar URLs de la lista de "URLs PERMITIDAS" del contexto del usuario.
+- DESCRIPCIONES BREVES: 2 oraciones por nota máximo.
+
+REGLA DE COMBINACIÓN PROVINCIAL/MUNICIPAL:
+Si para alguna área no hay material provincial O no hay material municipal en la ventana semanal, combiná los dos niveles en uno solo: "🏛️📍 *Provincial/Municipal:*". Si no hay material en ninguno de los dos, omití ambas filas y dejá solo la fila Nacional.
+
+Generá EXACTAMENTE las áreas que se te piden en el bloque de instrucciones del usuario. NO agregues áreas extras, NO omitas las pedidas.`;
+}
+
+async function handleWeeklyDigest(
+  supabase: any,
+  GEMINI_API_KEY: string,
+  scheduleName: string
+): Promise<Response> {
+  const corsHdrs = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Content-Type': 'application/json',
+  };
+
+  // Ventana de 7 días
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const { data: articles, error: artErr } = await supabase
+    .from('scraped_articles')
+    .select('*, media_sources(name, category, language)')
+    .gte('scraped_at', since)
+    .order('scraped_at', { ascending: false })
+    .limit(800);
+
+  if (artErr) throw artErr;
+  if (!articles || articles.length === 0) {
+    return new Response(
+      JSON.stringify({ success: true, message: 'Sin artículos en los últimos 7 días' }),
+      { headers: corsHdrs }
+    );
+  }
+
+  // Acortar URLs en batch
+  const allUrls = articles.map((a: any) => a.url).filter(Boolean);
+  const shortUrlMap = await shortenAll(allUrls);
+  const withShort = articles.map((a: any) => ({
+    ...a,
+    url_short: shortUrlMap.get(a.url) || a.url,
+  }));
+
+  // Formatear contexto compacto
+  const articlesContext = '## ARTÍCULOS DE LA SEMANA\n' + withShort.slice(0, 400).map((a: any) => {
+    const src = a.media_sources as any;
+    return `- "${a.title}" | ${src?.name || '?'} | cat=${src?.category || '?'} | ${a.url_short}\n  ${(a.summary || '').substring(0, 200)}`;
+  }).join('\n');
+
+  const allowedUrlsBlock = `\n\n## URLs PERMITIDAS\n${
+    withShort.map((a: any) => a.url_short).filter(Boolean).join('\n').substring(0, 12000)
+  }`;
+
+  // Fecha
+  const nowAR = new Date(Date.now() - 3 * 60 * 60 * 1000);
+  const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+  const monthNames = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  const dateLong = `${dayNames[nowAR.getUTCDay()]} ${nowAR.getUTCDate()} de ${monthNames[nowAR.getUTCMonth()]} de ${nowAR.getUTCFullYear()}`;
+
+  // Dividir áreas en 2 chunks: [0,1,2] y [3,4]
+  const chunk1Areas = AREAS.slice(0, 3); // Cultura, Educación, Salud
+  const chunk2Areas = AREAS.slice(3, 5); // Género, Brigadas
+
+  const systemPrompt = buildWeeklySystemPrompt();
+
+  const userPromptChunk1 = `${buildWeeklyPromptForAreas(chunk1Areas, articlesContext, dateLong, true, false)}
+
+${articlesContext}${allowedUrlsBlock}`;
+
+  const userPromptChunk2 = `${buildWeeklyPromptForAreas(chunk2Areas, articlesContext, dateLong, false, true)}
+
+${articlesContext}${allowedUrlsBlock}`;
+
+  console.log(`[${scheduleName}] Generando boletín semanal: chunk 1 (Cultura+Educación+Salud) y chunk 2 (Género+Brigadas) en paralelo`);
+
+  // Generación en paralelo
+  const [r1, r2] = await Promise.all([
+    callGemini(GEMINI_API_KEY, systemPrompt, userPromptChunk1, 6000),
+    callGemini(GEMINI_API_KEY, systemPrompt, userPromptChunk2, 5000),
+  ]);
+
+  const fullMessage = `${r1.text.trim()}\n\n${r2.text.trim()}`;
+
+  console.log(`[${scheduleName}] Modelos usados: chunk1=${r1.modelUsed}, chunk2=${r2.modelUsed}`);
+  console.log(`[${scheduleName}] Longitud final: ${fullMessage.length} chars`);
+
+  // Notas de aprendizaje (cortas para no consumir tokens)
+  let learningNotes = '';
+  try {
+    const learningPrompt = `Analizás brevemente este boletín semanal recién generado:\n${fullMessage.substring(0, 1500)}\n\nGenerá 3 notas de aprendizaje sobre qué se podría mejorar en próximos boletines semanales (formato lista, 200 palabras máximo).`;
+    const { text } = await callGemini(GEMINI_API_KEY, 'Sos un editor crítico. Castellano rioplatense.', learningPrompt, 800);
+    learningNotes = text;
+  } catch {
+    learningNotes = 'Sin notas de aprendizaje en este ciclo.';
+  }
+
+  // Guardar en DB (es boletín grupal)
+  const { data: digest, error: digestErr } = await supabase
+    .from('digest_sends')
+    .insert({
+      telegram_message: fullMessage,
+      articles_count: articles.length,
+      status: 'pending',
+      digest_type: 'weekly',
+      learning_notes: learningNotes,
+    })
+    .select()
+    .single();
+
+  if (digestErr) throw digestErr;
+
+  return new Response(
+    JSON.stringify({
+      success: true,
+      digest_id: digest.id,
+      digest_type: 'weekly',
+      articles_count: articles.length,
+      message_length: fullMessage.length,
+      models_used: [r1.modelUsed, r2.modelUsed],
+    }),
+    { headers: corsHdrs }
+  );
+}
