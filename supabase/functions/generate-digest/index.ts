@@ -580,6 +580,11 @@ interface AreaConfig {
   emoji: string;
   nombre: string;
   descripcion: string;
+  // Keywords que cuentan como pertenecientes a esta área. Lowercase, sin tildes para
+  // que el match sea más laxo. Una sola coincidencia en título o resumen alcanza.
+  keywords: string[];
+  // Keywords que descalifican un artículo aunque tenga match positivo (override)
+  excludeKeywords?: string[];
 }
 
 const AREAS: AreaConfig[] = [
@@ -587,120 +592,299 @@ const AREAS: AreaConfig[] = [
     emoji: '🎭',
     nombre: 'CULTURA',
     descripcion: 'política cultural, financiamiento, instituciones, festivales, espacios culturales, industrias culturales, libros, cine, música, teatro, patrimonio',
+    keywords: [
+      'cultura', 'cultural', 'cine', 'pelicula', 'película', 'cineasta', 'director',
+      'libro', 'autora', 'autor', 'literatura', 'editorial', 'feria del libro',
+      'musica', 'música', 'concierto', 'recital', 'banda', 'cantante', 'álbum',
+      'teatro', 'obra', 'actor', 'actriz', 'estreno', 'guion',
+      'museo', 'patrimonio', 'arte', 'artista', 'pintor', 'exposición', 'muestra',
+      'centro cultural', 'biblioteca', 'incaa', 'mecenazgo', 'cultura pública',
+      'festival', 'audiovisual', 'streaming', 'documental',
+    ],
   },
   {
     emoji: '📚',
     nombre: 'EDUCACIÓN',
     descripcion: 'educación pública, presupuesto, paritarias docentes, universidades, escuelas, infancias, conflictos gremiales del sector, leyes educativas',
+    keywords: [
+      'educación', 'educacion', 'educativ', 'docente', 'maestra', 'maestro', 'profesor',
+      'escuela', 'colegio', 'aula', 'jardín', 'jardin', 'inicial', 'primaria', 'secundaria',
+      'universidad', 'universitar', 'estudiante', 'alumno', 'alumna',
+      'paritaria docente', 'gremio docente', 'sutech', 'suteba', 'ctera', 'udocba',
+      'becas progresar', 'progresar', 'beca', 'fonid',
+      'incentivo docente', 'capital humano', 'ministerio de educación', 'pelta',
+      'sae', 'comedor escolar', 'libros escolares', 'útiles', 'cuadernos',
+      'evaluación aprender', 'censo educativo', 'analfabetismo',
+    ],
   },
   {
     emoji: '🏥',
     nombre: 'SALUD',
     descripcion: 'salud pública, hospitales, presupuesto, conflictos del sector, vacunas, salud mental, salud sexual, ANMAT, PAMI, obras sociales, medicamentos',
+    keywords: [
+      'salud', 'sanitar', 'hospital', 'hospitalari', 'clínica', 'clinica',
+      'medicamento', 'remedio', 'farmac', 'anmat', 'fda', 'vacuna', 'vacunación',
+      'pami', 'obra social', 'prepaga', 'iosfa', 'iomega', 'ioma',
+      'enferma', 'enfermo', 'paciente', 'medic', 'médic', 'doctor',
+      'salud mental', 'suicidio', 'depresión',
+      'salud sexual', 'aborto', 'ile', 'ive', 'eli',
+      'sarampión', 'dengue', 'covid', 'gripe', 'epidem', 'pandem',
+      'apross', 'osde', 'swiss medical', 'galeno',
+      'enfermería', 'enfermera', 'enfermero', 'kinesiolog',
+    ],
   },
   {
     emoji: '♀️',
     nombre: 'GÉNERO',
     descripcion: 'políticas de género, violencia de género, femicidios/travesticidios, leyes de género, derechos LGBTIQ+, aborto, cuidados, maternidad, brecha salarial, paridad',
+    keywords: [
+      'género', 'genero', 'feminismo', 'feminista', 'mujer', 'mujeres',
+      'violencia de género', 'violencia machista', 'femicidio', 'travesticidio',
+      'lgbt', 'lgbtiq', 'lgbtq', 'travesti', 'trans', 'no binaria', 'no binarie',
+      'gay', 'lesbiana', 'bisexual', 'orgullo',
+      'aborto', 'ile', 'ive', 'derechos sexuales',
+      'cuidados', 'tareas de cuidado', 'maternidad', 'paternidad', 'licencia',
+      'brecha salarial', 'brecha de género', 'paridad', 'cupo trans', 'cupo laboral travesti',
+      'ni una menos', '8m', '3j', 'esi',
+      'identidad de género', 'matrimonio igualitario', 'salario para amas de casa',
+      'desaparecida', 'búsqueda', 'alerta sofía',
+    ],
   },
   {
     emoji: '🤝',
     nombre: 'BRIGADAS SOLIDARIAS',
-    descripcion: 'situación de personas en situación de calle, condiciones materiales en barrios populares y villas, economía popular, trabajadoras y trabajadores de la economía popular (MTE, UTEP, cartoneros, vendedores ambulantes), organizaciones de base territorial, comedores comunitarios, merenderos, ollas populares, asistencia alimentaria, emergencia habitacional, frío e invierno en sectores vulnerables, IFE/AUH/programas sociales. NO incluir economía macro general, política partidaria sin vínculo territorial, seguridad/inseguridad genérica, ni declaraciones eclesiásticas amplias.',
+    descripcion: 'personas en situación de calle, barrios populares y villas, economía popular, organizaciones territoriales, comedores y merenderos',
+    keywords: [
+      'situación de calle', 'situacion de calle', 'sin techo',
+      'barrio popular', 'barrios populares', 'villa', 'asentamiento', 'toma de tierra',
+      'economía popular', 'economia popular', 'mte', 'utep', 'cooperativa',
+      'cartonero', 'vendedor ambulante', 'feriante', 'changarín',
+      'comedor comunitario', 'comedor', 'merendero', 'olla popular',
+      'asistencia alimentaria', 'tarjeta alimentar', 'alimentar',
+      'emergencia habitacional', 'frío', 'invierno', 'desalojo',
+      'ife', 'auh', 'asignación universal', 'plan social', 'potenciar trabajo',
+      'movimientos sociales', 'movimiento popular', 'organización territorial',
+      'frente patria grande', 'patria grande', 'grabois', 'somos barrios de pie',
+      'barrios de pie', 'evita', 'cccc', 'ctep',
+      'pobreza estructural', 'indec pobreza', 'hambre', 'desnutrición',
+    ],
+    excludeKeywords: [
+      // Evitar economía macro genérica
+      'tipo de cambio', 'dólar blue', 'reservas bcra', 'inflación mensual',
+      // Evitar declaraciones eclesiásticas amplias
+      'episcopal', 'episcopado', 'cardenal', 'obispo',
+    ],
   },
 ];
 
-function buildWeeklyPromptForAreas(
-  areas: AreaConfig[],
-  articlesContext: string,
+// Quita tildes para hacer el match laxo
+function normalize(s: string): string {
+  return (s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function articleMatchesArea(article: any, area: AreaConfig): boolean {
+  const haystack = normalize(`${article.title} ${article.summary || ''}`);
+  const inc = area.keywords.some(kw => haystack.includes(normalize(kw)));
+  if (!inc) return false;
+  if (area.excludeKeywords && area.excludeKeywords.length > 0) {
+    const excl = area.excludeKeywords.some(kw => haystack.includes(normalize(kw)));
+    if (excl) return false;
+  }
+  return true;
+}
+
+// Niveles geográficos
+type GeoLevel = 'national' | 'provincial' | 'municipal';
+
+// Listas de medios por nivel geográfico
+const NATIONAL_MEDIA = [
+  'clarin', 'la nacion', 'infobae', 'ambito', 'pagina|12', 'pagina/12', 'pagina 12',
+  'el destape', 'el cohete a la luna', 'tiempo argentino', 'cenital', 'panama revista',
+  'el grito del sur', 'el diario ar', 'cgtn', 'reuters', 'bbc mundo',
+  'revista anfibia', 'revista crisis', 'letra p', 'diagonales', 'perspectiva sur',
+  'le monde diplomatique', 'econojournal', 'va con firma', 'kranear', 'cepa', 'mate',
+];
+
+const QUILMES_MARKERS = [
+  'quilmes', 'don bosco', 'bernal', 'ezpeleta', 'san francisco solano',
+  'villa la florida', 'villa itati', 'villa itatí', 'la matera',
+  'la cañada', 'la canada', 'iapi', 'don bosco quilmes',
+  'isidoro iriarte', 'hospital iriarte', 'mayra mendoza',
+];
+
+// Otros distritos del sur GBA que NO son Quilmes (para excluir)
+const NOT_QUILMES_DISTRICTS = [
+  'avellaneda', 'lanus', 'lanús', 'lomas de zamora', 'almirante brown', 'berazategui',
+  'florencio varela', 'esteban echeverria', 'ezeiza', 'la plata', 'berisso', 'ensenada',
+];
+
+function detectGeoLevel(article: any): GeoLevel | 'unknown' {
+  const title = normalize(article.title || '');
+  const summary = normalize(article.summary || '');
+  const haystack = `${title} ${summary}`;
+  const sourceName = normalize(article.media_sources?.name || '');
+
+  // 1. Municipal: menciona Quilmes específicamente y NO menciona otros distritos
+  const mentionsQuilmes = QUILMES_MARKERS.some(m => haystack.includes(normalize(m)));
+  const mentionsOtherDistrict = NOT_QUILMES_DISTRICTS.some(d => haystack.includes(normalize(d)));
+  if (mentionsQuilmes && !mentionsOtherDistrict) return 'municipal';
+
+  // 2. Local del medio: si la fuente es InfoQuilmes y NO menciona otros distritos
+  if (sourceName.includes('infoquilmes') && !mentionsOtherDistrict) return 'municipal';
+
+  // 3. Provincial: menciona "buenos aires" como provincia, gobernador Kicillof, La Plata,
+  // o conurbano sin especificar distrito
+  if (
+    /provincia de buenos aires|kicillof|la plata|conurbano bonaerense|provincia bonaerense|gobierno bonaerense|legislatura bonaerense|gobernación bonaerense/.test(haystack)
+    && !mentionsQuilmes
+  ) return 'provincial';
+
+  // 4. Si la fuente es Inforegión o local del sur GBA y menciona algún distrito que
+  // no es Quilmes, marcamos provincial (por afinidad regional pero no es Quilmes)
+  if (
+    (sourceName.includes('inforegion') || sourceName.includes('infoquilmes'))
+    && mentionsOtherDistrict
+  ) return 'provincial';
+
+  // 5. Nacional: medios nacionales y no hace mención específica regional
+  const isNationalMedia = NATIONAL_MEDIA.some(m => sourceName.includes(m));
+  if (isNationalMedia) return 'national';
+
+  // 6. Si menciona Argentina como país sin localizar más, nacional
+  if (/argentina|nacional|gobierno nacional|congreso de la nacion|senado de la nacion/.test(haystack)) {
+    return 'national';
+  }
+
+  return 'unknown';
+}
+
+interface CandidateArticle {
+  title: string;
+  summary: string;
+  url_short: string;
+  source: string;
+  scraped_at: string;
+}
+
+function pickCandidates(
+  articles: any[],
+  area: AreaConfig,
+  level: GeoLevel,
+  max: number
+): CandidateArticle[] {
+  const matches = articles.filter((a: any) => {
+    return articleMatchesArea(a, area) && detectGeoLevel(a) === level;
+  });
+
+  // Ordenar por más reciente primero, luego dedup por título normalizado para evitar
+  // que el mismo evento aparezca 5 veces desde 5 medios distintos
+  const seen = new Set<string>();
+  const dedup: any[] = [];
+  for (const a of matches) {
+    const key = normalize(a.title || '').substring(0, 80);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    dedup.push(a);
+    if (dedup.length >= max) break;
+  }
+
+  return dedup.map((a: any) => ({
+    title: a.title || '',
+    summary: (a.summary || '').substring(0, 250),
+    url_short: a.url_short || '',
+    source: a.media_sources?.name || '?',
+    scraped_at: a.scraped_at,
+  }));
+}
+
+function buildWeeklyUserPrompt(
+  candidatesByAreaLevel: Record<string, CandidateArticle[]>,
   dateLong: string,
-  isFirstChunk: boolean,
-  isLastChunk: boolean
+  dateShort: string
 ): string {
-  const intro = isFirstChunk
-    ? `🗞️ *PATRIA GRANDE — Resumen Semanal*
+  let prompt = `Generá el boletín semanal con las 5 áreas de trabajo de Patria Grande Quilmes.
+
+REGLAS ABSOLUTAS:
+1. Para cada celda área × nivel, elegí UNA nota de los CANDIDATOS que te paso abajo. NO inventes notas que no estén en la lista.
+2. Tu descripción debe ser FIEL al título y resumen del candidato elegido. NO inventes detalles, instituciones, programas o fechas que no estén explícitos.
+3. Usá el url_short EXACTO del candidato elegido. NO modifiques el link.
+4. Si una celda tiene 0 candidatos, OMITÍ esa fila (regla de combinación abajo).
+5. Si una celda tiene candidatos pero ninguno es realmente sobre el área, OMITÍ esa fila igualmente.
+6. Si Provincial está vacío O Municipal está vacío, combiná ambos en "🏛️📍 *Provincial/Municipal:*" usando el que sí tenga material.
+7. Si AMBOS (Provincial y Municipal) están vacíos, dejá solo la fila Nacional para esa área.
+
+ESTRUCTURA EXACTA del boletín que tenés que generar:
+
+🗞️ *PATRIA GRANDE — Resumen Semanal*
 📅 ${dateLong}
 
 ━━━━━━━━━━━━━━━━━
 🔗 LA SEMANA EN PATRIA GRANDE
 ━━━━━━━━━━━━━━━━━
-[Generá un panorama integrador de 3-4 oraciones que conecte temáticamente las 5 áreas de trabajo de la semana: cultura, educación, salud, género y brigadas solidarias. Tono militante peronista.]
+[2-3 oraciones cortas y concretas: qué fue lo más relevante de la semana mirando el conjunto. Lenguaje militante pero no exagerado. NO inventes acciones ni hechos. NO digas que "Patria Grande hizo X" si no aparece en los candidatos.]
 
-`
-    : '';
+`;
 
-  const cierre = isLastChunk
-    ? `
+  for (const area of AREAS) {
+    prompt += `━━━━━━━━━━━━━━━━━\n${area.emoji} *${area.nombre}*\n━━━━━━━━━━━━━━━━━\n`;
 
-━━━━━━━━━━━━━━━━━
-✌️🇦🇷 *Patria Grande* | Semanal — ${dateLong.split(' de ').slice(0, 2).join('/')}`
-    : '';
+    const candNat = candidatesByAreaLevel[`${area.nombre}__national`] || [];
+    const candProv = candidatesByAreaLevel[`${area.nombre}__provincial`] || [];
+    const candMun = candidatesByAreaLevel[`${area.nombre}__municipal`] || [];
 
-  const areasInstrucciones = areas.map(area => `
-━━━━━━━━━━━━━━━━━
-${area.emoji} ${area.nombre}
-━━━━━━━━━━━━━━━━━
-🇦🇷 *Nacional:* [Una nota relevante de ARGENTINA EXCLUSIVAMENTE sobre ${area.descripcion}. NO incluir notas sobre otros países (Brasil, Uruguay, EEUU, etc) en este nivel — esas van a "internacional" en otros boletines, NO acá. 2 oraciones máximo: qué pasó + por qué importa.]
-🔗 [link acortado] ([Medio])
+    prompt += `\n[Candidatos disponibles para ${area.nombre}]\n`;
+    prompt += `\nNacional (${candNat.length}):\n`;
+    if (candNat.length === 0) prompt += '  (vacío — omití la fila Nacional)\n';
+    else candNat.forEach((c, i) => {
+      prompt += `  ${i + 1}. "${c.title}" | ${c.source} | ${c.url_short}\n     ${c.summary}\n`;
+    });
 
-🏛️ *Provincial:* [Una nota relevante de la PROVINCIA DE BUENOS AIRES sobre la misma área. NO incluir notas de otras provincias (Córdoba, Santa Fe, etc) ni de Nación. 2 oraciones.]
-🔗 [link] ([Medio])
+    prompt += `\nProvincial (${candProv.length}):\n`;
+    if (candProv.length === 0) prompt += '  (vacío)\n';
+    else candProv.forEach((c, i) => {
+      prompt += `  ${i + 1}. "${c.title}" | ${c.source} | ${c.url_short}\n     ${c.summary}\n`;
+    });
 
-📍 *Municipal:* [Una nota relevante DEL MUNICIPIO DE QUILMES EXCLUSIVAMENTE sobre la misma área. NO incluir notas de otros distritos del sur GBA (Berazategui, Avellaneda, Florencio Varela, Lomas de Zamora, etc) — solo Quilmes. 2 oraciones.]
-🔗 [link] ([Medio: InfoQuilmes / Inforegión / otro local sobre Quilmes])
+    prompt += `\nMunicipal Quilmes (${candMun.length}):\n`;
+    if (candMun.length === 0) prompt += '  (vacío)\n';
+    else candMun.forEach((c, i) => {
+      prompt += `  ${i + 1}. "${c.title}" | ${c.source} | ${c.url_short}\n     ${c.summary}\n`;
+    });
 
-[REGLAS DE COMBINACIÓN Y OMISIÓN:
-- Si para esta área NO hay nota provincial O NO hay municipal en la semana, combiná las dos en una sola fila etiquetada como "🏛️📍 *Provincial/Municipal:*". 
-- Si NO hay material en ninguno de los dos niveles (provincial ni municipal), omití ambas filas (mantené solo la fila Nacional).
-- Si NO hay nota nacional sobre Argentina específicamente, omití también esa fila.
-- Es preferible omitir un nivel a inventar contenido o usar contenido geográficamente incorrecto.
-- VERIFICACIÓN: antes de incluir una nota, asegurate de que el contenido sea geográficamente correcto. Si una nota dice "Brasil avanza en clonación" NO entra como nacional. Si una nota dice "Berazategui inaugura..." NO entra como municipal.]
-`).join('\n');
+    prompt += `\nGenerá ahora la sección ${area.emoji} *${area.nombre}* siguiendo las reglas. Si no hay candidatos para algún nivel, omití esa fila.\n\n`;
+  }
 
-  return `${intro}${areasInstrucciones}${cierre}`;
+  prompt += `\n━━━━━━━━━━━━━━━━━\n✌️🇦🇷 *Patria Grande* | Semanal — ${dateShort}\n\nGenerá ahora el boletín completo.`;
+
+  return prompt;
 }
 
 function buildWeeklySystemPrompt(): string {
   return `Sos el editor del boletín semanal de Patria Grande Quilmes, una organización peronista y popular argentina.
 
-Generás el *boletín semanal del sábado* que va al grupo de difusión. Reúne lo más importante de la semana organizado por las 5 áreas de trabajo concretas de la organización en Quilmes.
+Tu tarea ESTRICTA: a partir de los CANDIDATOS pre-seleccionados que te pasa el usuario, armás un boletín fiel a esos candidatos. NO inventás noticias. NO inventás detalles que no estén explícitos en el título o resumen del candidato.
 
-ÁREAS DE TRABAJO:
-- 🎭 Cultura
-- 📚 Educación
-- 🏥 Salud
-- ♀️ Género
-- 🤝 Brigadas Solidarias (foco específico: personas en situación de calle, barrios populares y villas, economía popular, organizaciones territoriales de base como MTE/UTEP, comedores y merenderos, asistencia alimentaria, emergencia habitacional, programas sociales como IFE/AUH. NO entran temas de economía macro genérica, política partidaria sin vínculo territorial, ni inseguridad/seguridad si no toca a estos sectores.)
-
-ESTRUCTURA POR ÁREA:
-Cada área tiene 3 niveles geográficos ESTRICTAMENTE DEFINIDOS:
-- 🇦🇷 *Nacional*: SOLO noticias de Argentina (no de otros países). Si la única información disponible es de otro país, omitir.
-- 🏛️ *Provincial*: SOLO noticias de la Provincia de Buenos Aires (no Córdoba, Santa Fe, etc).
-- 📍 *Municipal*: SOLO noticias del Municipio de Quilmes (no Berazategui, Florencio Varela, Lanús, ni otros distritos).
-
-En cada nivel se elige UNA noticia relevante de la semana — puede ser coyuntural, anuncio de medida política, conflicto, discusión pública, o nota de análisis.
-
-REGLAS DE CONTENIDO:
-- Lenguaje militante peronista, claro y directo, accesible para simpatizantes.
-- Perspectiva de género NATURAL: en el área de Género va de fondo; en otras áreas, solo cuando el tema lo amerita.
-- Puntuación castellana correcta: ¡! y ¿? donde corresponda.
-- Calidad alta: priorizar notas con respaldo, descartar rumores o títulos clickbait.
-- Todos los links YA ESTÁN ACORTADOS (tinyurl): usalos textualmente, NO modifiques nada.
-- Solo usar URLs de la lista de "URLs PERMITIDAS" del contexto del usuario.
-- DESCRIPCIONES BREVES: 2 oraciones por nota máximo.
-
-REGLA CRÍTICA DE CALIDAD DE LINKS:
-Cada artículo del contexto tiene un TÍTULO específico. SOLO incluir notas cuyo título describa una noticia concreta. NO incluir nunca:
-- Títulos genéricos tipo "agenda", "categoría", "sección", "novedades", "todas las noticias"
-- Títulos que sean nombres de secciones del medio (ej: "Cultura - InfoQuilmes", "Educación", "Género")
-- Títulos que sean solo el nombre del medio o subdominios
-- URLs que terminen en /category/, /seccion/, /tag/, /agenda, /todos, etc.
-Si para algún nivel solo hay material de ese tipo (linkos de sección sin nota concreta), preferí OMITIR ese nivel antes que incluir un link basura. La regla de combinación Provincial/Municipal aplica también si una de las dos solo tiene links de sección.
+REGLAS ABSOLUTAS:
+1. Solo usar notas que aparezcan en la lista de candidatos del usuario.
+2. La descripción que escribís debe basarse EXCLUSIVAMENTE en el título y resumen del candidato. Si el candidato dice "El gobierno anunció X", escribí sobre X — no inventes detalles, programas o instituciones que no estén ahí.
+3. Usar el url_short EXACTO del candidato. NO modificar.
+4. 2 oraciones máximo por nota.
+5. Lenguaje militante peronista pero NO sobreexagerado: que se note el posicionamiento sin caer en consigna vacía. Tono concreto, claro, sobrio.
+6. Perspectiva de género NATURAL: en el área de Género va de fondo; en otras áreas, solo si el tema lo amerita realmente.
+7. Puntuación castellana correcta: ¡! y ¿? donde corresponda.
+8. Si una celda tiene 0 candidatos válidos, OMITÍ esa fila completa.
+9. NUNCA inventes que "Patria Grande hizo X" o "las brigadas de Patria Grande Quilmes hicieron Y" si eso no aparece literalmente en los candidatos.
 
 REGLA DE COMBINACIÓN PROVINCIAL/MUNICIPAL:
-Si para alguna área no hay material provincial O no hay material municipal en la ventana semanal, combiná los dos niveles en uno solo: "🏛️📍 *Provincial/Municipal:*". Si no hay material en ninguno de los dos, omití ambas filas y dejá solo la fila Nacional.
+Si Provincial está vacío Y Municipal NO: usá la fila "🏛️📍 *Provincial/Municipal:*" con el material municipal.
+Si Municipal está vacío Y Provincial NO: usá la fila "🏛️📍 *Provincial/Municipal:*" con el material provincial.
+Si ambos están vacíos: omití ambas filas.
 
-Generá EXACTAMENTE las áreas que se te piden en el bloque de instrucciones del usuario. NO agregues áreas extras, NO omitas las pedidas.`;
+REGLA DE PANORAMA INICIAL:
+El "PANORAMA DE LA SEMANA" debe ser CORTO (2-3 oraciones), CONCRETO y NO EXAGERADO. NO inventar acciones de Patria Grande. Solo conectar los temas de los candidatos elegidos.`;
 }
 
 async function handleWeeklyDigest(
@@ -731,32 +915,28 @@ async function handleWeeklyDigest(
     );
   }
 
-  // Filtrar artículos que parecen páginas de sección/agenda en lugar de notas concretas.
-  // Sin esto, Gemini elige links basura cuando no encuentra nada mejor.
+  // Filtro de páginas de sección/agenda
   const isLikelySectionPage = (a: any): boolean => {
     const url = (a.url || '').toLowerCase();
     const title = (a.title || '').toLowerCase().trim();
-    // URLs sospechosas (paths de sección, categoría, tag, agenda)
     if (/\/(category|categoria|categorias|seccion|secciones|sección|tag|tags|agenda|todos|todas|archivo|archivos)\b/.test(url)) return true;
-    // URL termina en "/" o el path es muy corto (probablemente home/sección)
     const pathSegments = url.replace(/^https?:\/\/[^/]+/, '').split('/').filter(Boolean);
     if (pathSegments.length <= 1) return true;
-    // Títulos genéricos típicos de páginas de sección
     const genericTitles = [
       /^(cultura|educaci[oó]n|salud|g[eé]nero|pol[ií]tica|deportes|sociedad|econom[ií]a)\s*[-|–—]/i,
       /archivos?$/i,
       /^agenda\b/i,
       /\bsecci[oó]n\b/i,
       /\bcategor[ií]a\b/i,
+      /^novedades$/i,
     ];
     if (genericTitles.some(re => re.test(title))) return true;
-    // Título muy corto (< 25 chars) suele ser sección, no nota
     if (title.length < 25) return true;
     return false;
   };
 
   const articlesFiltered = articles.filter((a: any) => !isLikelySectionPage(a));
-  console.log(`[weekly] Artículos descartados por ser páginas de sección: ${articles.length - articlesFiltered.length}`);
+  console.log(`[weekly] Artículos filtrados (sección): ${articles.length - articlesFiltered.length}, restantes: ${articlesFiltered.length}`);
 
   if (articlesFiltered.length === 0) {
     return new Response(
@@ -765,7 +945,7 @@ async function handleWeeklyDigest(
     );
   }
 
-  // Acortar URLs en batch
+  // Acortar URLs (solo de los que pasan el filtro inicial)
   const allUrls = articlesFiltered.map((a: any) => a.url).filter(Boolean);
   const shortUrlMap = await shortenAll(allUrls);
   const withShort = articlesFiltered.map((a: any) => ({
@@ -773,32 +953,44 @@ async function handleWeeklyDigest(
     url_short: shortUrlMap.get(a.url) || a.url,
   }));
 
-  // Formatear contexto compacto
-  const articlesContext = '## ARTÍCULOS DE LA SEMANA\n' + withShort.slice(0, 400).map((a: any) => {
-    const src = a.media_sources as any;
-    return `- "${a.title}" | ${src?.name || '?'} | cat=${src?.category || '?'} | ${a.url_short}\n  ${(a.summary || '').substring(0, 200)}`;
-  }).join('\n');
+  // ── Pre-clasificar candidatos por área × nivel ──────────────────────────────
+  const candidatesByAreaLevel: Record<string, CandidateArticle[]> = {};
+  const candidateStats: Record<string, number> = {};
 
-  const allowedUrlsBlock = `\n\n## URLs PERMITIDAS\n${
-    withShort.map((a: any) => a.url_short).filter(Boolean).join('\n').substring(0, 12000)
-  }`;
+  for (const area of AREAS) {
+    for (const level of ['national', 'provincial', 'municipal'] as GeoLevel[]) {
+      const cands = pickCandidates(withShort, area, level, 5);
+      const key = `${area.nombre}__${level}`;
+      candidatesByAreaLevel[key] = cands;
+      candidateStats[key] = cands.length;
+    }
+  }
+
+  console.log(`[weekly] Candidatos pre-seleccionados:`, candidateStats);
+
+  // Verificar que al menos haya algo para generar
+  const totalCandidates = Object.values(candidateStats).reduce((a, b) => a + b, 0);
+  if (totalCandidates === 0) {
+    return new Response(
+      JSON.stringify({
+        success: true,
+        message: 'No hay candidatos en ninguna área/nivel. Revisar keywords o ampliar fuentes.',
+      }),
+      { headers: corsHdrs }
+    );
+  }
 
   // Fecha
   const nowAR = new Date(Date.now() - 3 * 60 * 60 * 1000);
   const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
   const monthNames = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
   const dateLong = `${dayNames[nowAR.getUTCDay()]} ${nowAR.getUTCDate()} de ${monthNames[nowAR.getUTCMonth()]} de ${nowAR.getUTCFullYear()}`;
+  const dateShort = `${String(nowAR.getUTCDate()).padStart(2, '0')}/${String(nowAR.getUTCMonth() + 1).padStart(2, '0')}`;
 
   const systemPrompt = buildWeeklySystemPrompt();
+  const userPrompt = buildWeeklyUserPrompt(candidatesByAreaLevel, dateLong, dateShort);
 
-  // Una sola llamada con las 5 áreas. Antes lo dividíamos en 2 chunks pero
-  // generaba duplicación porque el system prompt describe la estructura completa.
-  // Con maxOutputTokens=12000 entran las 5 áreas × 3 niveles cómodos.
-  const userPrompt = `${buildWeeklyPromptForAreas(AREAS, articlesContext, dateLong, true, true)}
-
-${articlesContext}${allowedUrlsBlock}`;
-
-  console.log(`[${scheduleName}] Generando boletín semanal completo (${AREAS.length} áreas, una sola llamada)`);
+  console.log(`[${scheduleName}] Generando boletín semanal con ${totalCandidates} candidatos pre-seleccionados`);
 
   const r1 = await callGemini(GEMINI_API_KEY, systemPrompt, userPrompt, 12000);
   const fullMessage = r1.text.trim();
@@ -806,22 +998,22 @@ ${articlesContext}${allowedUrlsBlock}`;
   console.log(`[${scheduleName}] Modelo usado: ${r1.modelUsed}`);
   console.log(`[${scheduleName}] Longitud final: ${fullMessage.length} chars`);
 
-  // Notas de aprendizaje (cortas para no consumir tokens)
+  // Notas de aprendizaje (cortas)
   let learningNotes = '';
   try {
-    const learningPrompt = `Analizás brevemente este boletín semanal recién generado:\n${fullMessage.substring(0, 1500)}\n\nGenerá 3 notas de aprendizaje sobre qué se podría mejorar en próximos boletines semanales (formato lista, 200 palabras máximo).`;
+    const learningPrompt = `Analizás brevemente este boletín semanal recién generado:\n${fullMessage.substring(0, 1500)}\n\nGenerá 3 notas de aprendizaje sobre qué se podría mejorar (formato lista, 200 palabras máximo).`;
     const { text } = await callGemini(GEMINI_API_KEY, 'Sos un editor crítico. Castellano rioplatense.', learningPrompt, 800);
     learningNotes = text;
   } catch {
     learningNotes = 'Sin notas de aprendizaje en este ciclo.';
   }
 
-  // Guardar en DB (es boletín grupal)
+  // Guardar en DB
   const { data: digest, error: digestErr } = await supabase
     .from('digest_sends')
     .insert({
       telegram_message: fullMessage,
-      articles_count: articles.length,
+      articles_count: articlesFiltered.length,
       status: 'pending',
       digest_type: 'weekly',
       learning_notes: learningNotes,
@@ -836,7 +1028,9 @@ ${articlesContext}${allowedUrlsBlock}`;
       success: true,
       digest_id: digest.id,
       digest_type: 'weekly',
-      articles_count: articles.length,
+      articles_count: articlesFiltered.length,
+      candidates_count: totalCandidates,
+      candidates_by_cell: candidateStats,
       message_length: fullMessage.length,
       models_used: [r1.modelUsed],
     }),
