@@ -746,31 +746,21 @@ async function handleWeeklyDigest(
   const monthNames = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
   const dateLong = `${dayNames[nowAR.getUTCDay()]} ${nowAR.getUTCDate()} de ${monthNames[nowAR.getUTCMonth()]} de ${nowAR.getUTCFullYear()}`;
 
-  // Dividir áreas en 2 chunks: [0,1,2] y [3,4]
-  const chunk1Areas = AREAS.slice(0, 3); // Cultura, Educación, Salud
-  const chunk2Areas = AREAS.slice(3, 5); // Género, Brigadas
-
   const systemPrompt = buildWeeklySystemPrompt();
 
-  const userPromptChunk1 = `${buildWeeklyPromptForAreas(chunk1Areas, articlesContext, dateLong, true, false)}
+  // Una sola llamada con las 5 áreas. Antes lo dividíamos en 2 chunks pero
+  // generaba duplicación porque el system prompt describe la estructura completa.
+  // Con maxOutputTokens=12000 entran las 5 áreas × 3 niveles cómodos.
+  const userPrompt = `${buildWeeklyPromptForAreas(AREAS, articlesContext, dateLong, true, true)}
 
 ${articlesContext}${allowedUrlsBlock}`;
 
-  const userPromptChunk2 = `${buildWeeklyPromptForAreas(chunk2Areas, articlesContext, dateLong, false, true)}
+  console.log(`[${scheduleName}] Generando boletín semanal completo (${AREAS.length} áreas, una sola llamada)`);
 
-${articlesContext}${allowedUrlsBlock}`;
+  const r1 = await callGemini(GEMINI_API_KEY, systemPrompt, userPrompt, 12000);
+  const fullMessage = r1.text.trim();
 
-  console.log(`[${scheduleName}] Generando boletín semanal: chunk 1 (Cultura+Educación+Salud) y chunk 2 (Género+Brigadas) en paralelo`);
-
-  // Generación en paralelo
-  const [r1, r2] = await Promise.all([
-    callGemini(GEMINI_API_KEY, systemPrompt, userPromptChunk1, 6000),
-    callGemini(GEMINI_API_KEY, systemPrompt, userPromptChunk2, 5000),
-  ]);
-
-  const fullMessage = `${r1.text.trim()}\n\n${r2.text.trim()}`;
-
-  console.log(`[${scheduleName}] Modelos usados: chunk1=${r1.modelUsed}, chunk2=${r2.modelUsed}`);
+  console.log(`[${scheduleName}] Modelo usado: ${r1.modelUsed}`);
   console.log(`[${scheduleName}] Longitud final: ${fullMessage.length} chars`);
 
   // Notas de aprendizaje (cortas para no consumir tokens)
@@ -805,7 +795,7 @@ ${articlesContext}${allowedUrlsBlock}`;
       digest_type: 'weekly',
       articles_count: articles.length,
       message_length: fullMessage.length,
-      models_used: [r1.modelUsed, r2.modelUsed],
+      models_used: [r1.modelUsed],
     }),
     { headers: corsHdrs }
   );
