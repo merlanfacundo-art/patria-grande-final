@@ -61,11 +61,12 @@ async function callGemini(
   });
 
   // Cascada de modelos: si uno está saturado, probamos el siguiente.
-  // Ordenados de mejor a más disponible. Todos free tier.
+  // Ordenados de mejor calidad a más disponibilidad (más RPM/RPD). Free tier.
+  // Verificado en abril 2026: 1.5-flash descontinuado, 2.0-flash deprecado.
   const models = [
-    'gemini-2.5-flash',       // mejor calidad, más demandado
-    'gemini-2.0-flash',       // versión anterior, menos congestionada
-    'gemini-1.5-flash',       // muy disponible, calidad suficiente para resúmenes
+    'gemini-2.5-flash',       // primario: 10 RPM, 250 RPD
+    'gemini-2.5-flash-lite',  // fallback: 15 RPM, 1000 RPD (mayor disponibilidad)
+    'gemini-2.5-pro',         // último recurso: 5 RPM pero más potente
   ];
 
   // Por modelo: 4 intentos con backoff (total ~25s por modelo)
