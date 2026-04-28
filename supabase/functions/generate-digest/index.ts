@@ -639,16 +639,21 @@ function buildWeeklyPromptForAreas(
 ━━━━━━━━━━━━━━━━━
 ${area.emoji} ${area.nombre}
 ━━━━━━━━━━━━━━━━━
-🇦🇷 *Nacional:* [Una nota relevante a nivel nacional sobre ${area.descripcion}. 2 oraciones máximo: qué pasó + por qué importa.]
+🇦🇷 *Nacional:* [Una nota relevante de ARGENTINA EXCLUSIVAMENTE sobre ${area.descripcion}. NO incluir notas sobre otros países (Brasil, Uruguay, EEUU, etc) en este nivel — esas van a "internacional" en otros boletines, NO acá. 2 oraciones máximo: qué pasó + por qué importa.]
 🔗 [link acortado] ([Medio])
 
-🏛️ *Provincial:* [Una nota relevante de la Provincia de Buenos Aires sobre la misma área. 2 oraciones.]
+🏛️ *Provincial:* [Una nota relevante de la PROVINCIA DE BUENOS AIRES sobre la misma área. NO incluir notas de otras provincias (Córdoba, Santa Fe, etc) ni de Nación. 2 oraciones.]
 🔗 [link] ([Medio])
 
-📍 *Municipal:* [Una nota relevante de Quilmes / sur GBA sobre la misma área. 2 oraciones.]
-🔗 [link] ([Medio: InfoQuilmes / Inforegión / otro local])
+📍 *Municipal:* [Una nota relevante DEL MUNICIPIO DE QUILMES EXCLUSIVAMENTE sobre la misma área. NO incluir notas de otros distritos del sur GBA (Berazategui, Avellaneda, Florencio Varela, Lomas de Zamora, etc) — solo Quilmes. 2 oraciones.]
+🔗 [link] ([Medio: InfoQuilmes / Inforegión / otro local sobre Quilmes])
 
-[REGLA DE COMBINACIÓN: si para esta área NO hay nota provincial O NO hay municipal en la semana, combiná las dos en una sola fila etiquetada como "🏛️📍 *Provincial/Municipal:*". Si NO hay nada en ninguno de los dos niveles, omití ambas filas (pero MANTENÉ la sección de área con el nivel Nacional). Es preferible omitir un nivel a inventar contenido.]
+[REGLAS DE COMBINACIÓN Y OMISIÓN:
+- Si para esta área NO hay nota provincial O NO hay municipal en la semana, combiná las dos en una sola fila etiquetada como "🏛️📍 *Provincial/Municipal:*". 
+- Si NO hay material en ninguno de los dos niveles (provincial ni municipal), omití ambas filas (mantené solo la fila Nacional).
+- Si NO hay nota nacional sobre Argentina específicamente, omití también esa fila.
+- Es preferible omitir un nivel a inventar contenido o usar contenido geográficamente incorrecto.
+- VERIFICACIÓN: antes de incluir una nota, asegurate de que el contenido sea geográficamente correcto. Si una nota dice "Brasil avanza en clonación" NO entra como nacional. Si una nota dice "Berazategui inaugura..." NO entra como municipal.]
 `).join('\n');
 
   return `${intro}${areasInstrucciones}${cierre}`;
@@ -667,7 +672,12 @@ Generás el *boletín semanal del sábado* que va al grupo de difusión. Reúne 
 - 🤝 Brigadas Solidarias (acciones para personas en situación de calle, ollas populares, comedores, asistencia social)
 
 ESTRUCTURA POR ÁREA:
-Cada área tiene 3 niveles: Nacional, Provincial (Buenos Aires), Municipal (Quilmes/sur GBA). En cada nivel se elige UNA noticia relevante de la semana — puede ser coyuntural, anuncio de medida política, conflicto, discusión pública, o nota de análisis.
+Cada área tiene 3 niveles geográficos ESTRICTAMENTE DEFINIDOS:
+- 🇦🇷 *Nacional*: SOLO noticias de Argentina (no de otros países). Si la única información disponible es de otro país, omitir.
+- 🏛️ *Provincial*: SOLO noticias de la Provincia de Buenos Aires (no Córdoba, Santa Fe, etc).
+- 📍 *Municipal*: SOLO noticias del Municipio de Quilmes (no Berazategui, Florencio Varela, Lanús, ni otros distritos).
+
+En cada nivel se elige UNA noticia relevante de la semana — puede ser coyuntural, anuncio de medida política, conflicto, discusión pública, o nota de análisis.
 
 REGLAS DE CONTENIDO:
 - Lenguaje militante peronista, claro y directo, accesible para simpatizantes.
