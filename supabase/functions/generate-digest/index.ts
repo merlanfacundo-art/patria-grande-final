@@ -181,6 +181,12 @@ REGLAS DE CONTENIDO:
 - Calidad alta: solo incluir noticias con al menos 2 fuentes distintas. Descartar noticias débiles.
 - Todos los links YA ESTÁN ACORTADOS en la lista de artículos: usalos textualmente, no los modifiques.
 
+REGLA ANTI-DUPLICACIÓN (CRÍTICO):
+Cada URL/link aparece UNA SOLA VEZ en todo el mensaje. Una nota que ya usaste en "ARGENTINA" NO puede volver a aparecer en "INTERNACIONAL", "FUERA DE AGENDA" ni en "ANÁLISIS". Cuando estés por incluir una nota en una sección, verificá mentalmente que su URL no esté en ninguna sección anterior. Si una nota podría ir en dos secciones, elegí la sección donde tenga MÁS encaje y omitila de la otra.
+
+REGLA DE FIDELIDAD AL CONTENIDO (CRÍTICO):
+NO inventes detalles que no estén en el título o resumen del artículo. Si un artículo dice "Violencia en escuelas — Diagonales" sobre algún hecho específico, NO inventes que ocurrió en Quilmes si el cuerpo no lo dice. Si la nota es de otro país (ej: contagio de VIH en Pakistán), NO la presentes como si fuera de Argentina. Tu descripción debe basarse SOLO en lo que el título y resumen del artículo dicen literalmente.
+
 REGLAS DE LONGITUD (CRÍTICO):
 - El mensaje debe SIEMPRE cerrar con el footer "—\\n🤖 Patria Grande | [horario]".
 - Si tenés mucho material, priorizá así:
@@ -267,6 +273,15 @@ REGLAS CRÍTICAS:
 - Los links van al FINAL de cada ítem, no en el medio del texto.
 - DESCRIPCIONES BREVES: 2 oraciones máximo por tema. Que sean concisas y filosas, no largas y descriptivas.
 - Cada ítem DEBE explicar: qué pasó Y por qué importa.
+
+REGLA ANTI-DUPLICACIÓN (CRÍTICO):
+Cada URL/link aparece UNA SOLA VEZ en todo el boletín. Una nota usada en "ARGENTINA" NO puede aparecer también en "EL MUNDO", "QUILMES", "FUERA DE AGENDA" ni en "PARA PROFUNDIZAR". Si una nota podría ir en dos secciones, elegí la que mejor le corresponda y omitila de la otra.
+
+REGLA DE FIDELIDAD AL CONTENIDO (CRÍTICO):
+NO inventes detalles que no estén en el título o resumen del artículo. NO ubiques noticias en lugares donde no ocurrieron. Si el artículo es sobre Pakistán, NO lo cuentes como si fuera de Argentina. Si el artículo no aclara la zona específica, NO inventes que es de Quilmes.
+
+REGLA DE QUILMES ESTRICTO (📍):
+La sección 📍 QUILMES SOLO acepta notas cuyo CONTENIDO real (no solo el título) refiere a hechos ocurridos en el partido de Quilmes (ciudad de Quilmes, Bernal, Don Bosco, Ezpeleta, San Francisco Solano, Villa La Florida, Villa Itatí, La Matera, La Cañada). NO acepta notas de Lanús, Avellaneda, Lomas de Zamora, Almirante Brown, Berazategui, Florencio Varela, Esteban Echeverría, Ezeiza, La Plata, Berisso, Ensenada, ni de zonas genéricas como "sur del conurbano" o "zona sur". Si la única nota local disponible es de un distrito vecino, OMITÍ la sección 📍 QUILMES por completo. NUNCA renombres una nota de otro distrito como si fuera de Quilmes.
 
 ESTRUCTURA EXACTA (respetá emojis, separadores y orden):
 
@@ -750,36 +765,49 @@ function detectGeoLevel(article: any): GeoLevel | 'unknown' {
   const haystack = `${title} ${summary}`;
   const sourceName = normalize(article.media_sources?.name || '');
 
-  // 1. Municipal: menciona Quilmes específicamente y NO menciona otros distritos
-  const mentionsQuilmes = QUILMES_MARKERS.some(m => haystack.includes(normalize(m)));
-  const mentionsOtherDistrict = NOT_QUILMES_DISTRICTS.some(d => haystack.includes(normalize(d)));
-  if (mentionsQuilmes && !mentionsOtherDistrict) return 'municipal';
+  // Contar menciones de Quilmes y de otros distritos para calidad de match
+  const countMatches = (text: string, terms: string[]): number =>
+    terms.reduce((acc, t) => acc + (text.split(normalize(t)).length - 1), 0);
 
-  // 2. Local del medio: si la fuente es InfoQuilmes y NO menciona otros distritos
-  if (sourceName.includes('infoquilmes') && !mentionsOtherDistrict) return 'municipal';
+  const quilmesHitsTitle = countMatches(title, QUILMES_MARKERS);
+  const quilmesHitsTotal = countMatches(haystack, QUILMES_MARKERS);
+  const otherDistrictHits = countMatches(haystack, NOT_QUILMES_DISTRICTS);
 
-  // 3. Provincial: menciona "buenos aires" como provincia, gobernador Kicillof, La Plata,
-  // o conurbano sin especificar distrito
+  // 1. Municipal STRICT: Quilmes está en el TÍTULO y NO hay menciones de otros distritos.
+  // Esto evita que una nota "Violencia escolar en Lanús; en Quilmes también pasa"
+  // se cuele como municipal de Quilmes.
+  if (quilmesHitsTitle >= 1 && otherDistrictHits === 0) return 'municipal';
+
+  // 2. Municipal por fuente: InfoQuilmes Y mención de Quilmes en cualquier parte
+  // Y sin mencionar otros distritos (porque InfoQuilmes a veces cubre la región).
+  if (sourceName.includes('infoquilmes') && quilmesHitsTotal >= 1 && otherDistrictHits === 0) {
+    return 'municipal';
+  }
+
+  // 3. Provincial: menciones de la provincia/Kicillof/La Plata, sin Quilmes
   if (
-    /provincia de buenos aires|kicillof|la plata|conurbano bonaerense|provincia bonaerense|gobierno bonaerense|legislatura bonaerense|gobernación bonaerense/.test(haystack)
-    && !mentionsQuilmes
+    /provincia de buenos aires|kicillof|la plata|conurbano bonaerense|provincia bonaerense|gobierno bonaerense|legislatura bonaerense|gobernacion bonaerense|gobernación bonaerense/.test(haystack)
+    && quilmesHitsTotal === 0
   ) return 'provincial';
 
-  // 4. Si la fuente es Inforegión o local del sur GBA y menciona algún distrito que
-  // no es Quilmes, marcamos provincial (por afinidad regional pero no es Quilmes)
+  // 4. Si la fuente local (Inforegión / InfoQuilmes) menciona OTROS distritos sin Quilmes,
+  // marcamos provincial (regional pero NO Quilmes).
   if (
     (sourceName.includes('inforegion') || sourceName.includes('infoquilmes'))
-    && mentionsOtherDistrict
+    && otherDistrictHits >= 1
+    && quilmesHitsTitle === 0
   ) return 'provincial';
 
-  // 5. Nacional: medios nacionales y no hace mención específica regional
+  // 5. Nacional: medios nacionales SIN mención específica regional, contenido sobre Argentina.
+  // Importante: NO devolver 'national' por default — si la nota es claramente sobre otro país,
+  // tiene que terminar como 'unknown'. Buscamos señales positivas de Argentina.
   const isNationalMedia = NATIONAL_MEDIA.some(m => sourceName.includes(m));
-  if (isNationalMedia) return 'national';
+  const mentionsArgentina = /\bargentina\b|\bargentino\b|\bargentina\b|gobierno nacional|congreso de la nacion|senado de la nacion|camara de diputados|presidencia de la nacion|milei|cristina kirchner/.test(haystack);
+  // Señales de que la nota es de OTRO país (no entra como nacional argentino)
+  const looksForeign = /pakistan|paquistan|india|china|brasil|uruguay|chile|peru|venezuela|colombia|mexico|estados unidos|eeuu|francia|alemania|italia|espana|reino unido|trump|biden|lula|petro|maduro|boric|bolsonaro/.test(haystack);
 
-  // 6. Si menciona Argentina como país sin localizar más, nacional
-  if (/argentina|nacional|gobierno nacional|congreso de la nacion|senado de la nacion/.test(haystack)) {
-    return 'national';
-  }
+  if (isNationalMedia && mentionsArgentina && !looksForeign) return 'national';
+  if (mentionsArgentina && !looksForeign) return 'national';
 
   return 'unknown';
 }
@@ -900,6 +928,8 @@ REGLAS ABSOLUTAS:
 7. Puntuación castellana correcta: ¡! y ¿? donde corresponda.
 8. Si una celda tiene 0 candidatos válidos, OMITÍ esa fila completa.
 9. NUNCA inventes que "Patria Grande hizo X" o "las brigadas de Patria Grande Quilmes hicieron Y" si eso no aparece literalmente en los candidatos.
+10. ANTI-DUPLICACIÓN: cada URL aparece UNA SOLA VEZ en todo el boletín. Si una nota ya la usaste en (área A, nivel X), NO la vuelvas a usar en otra celda. Si querés usarla, elegí la celda más apropiada y omitila de la otra. Recorré las celdas en orden y llevá una memoria mental de qué URLs ya usaste.
+11. FIDELIDAD GEOGRÁFICA: una nota va a la fila "Municipal" SOLO si el contenido refiere a hechos en Quilmes (no solo si menciona "Quilmes" en pasada). Si una nota es de Pakistán, no la uses como nacional argentino. Si una nota es de "violencia escolar en Lanús", no la uses en municipal de Quilmes aunque el medio sea de la zona.
 
 REGLA DE COMBINACIÓN PROVINCIAL/MUNICIPAL:
 Si Provincial está vacío Y Municipal NO: usá la fila "🏛️📍 *Provincial/Municipal:*" con el material municipal.
@@ -1041,10 +1071,40 @@ async function runWeeklyDigest(
   console.log(`[${scheduleName}] Generando boletín semanal con ${totalCandidates} candidatos pre-seleccionados`);
 
   const r1 = await callGemini(GEMINI_API_KEY, systemPrompt, userPrompt, 12000);
-  const fullMessage = r1.text.trim();
+  let fullMessage = r1.text.trim();
 
   console.log(`[${scheduleName}] Modelo usado: ${r1.modelUsed}`);
   console.log(`[${scheduleName}] Longitud final: ${fullMessage.length} chars`);
+
+  // ── Validación post-Gemini ──────────────────────────────────────────────────
+  // 1) URLs que aparecen pero que NO están en los candidatos → invención
+  // 2) URLs que aparecen MÁS DE UNA VEZ → duplicación entre secciones
+  const validUrls = new Set<string>();
+  for (const cands of Object.values(candidatesByAreaLevel)) {
+    for (const c of cands) if (c.url_short) validUrls.add(c.url_short);
+  }
+
+  const urlPattern = /https?:\/\/[^\s)]+/g;
+  const foundUrls = fullMessage.match(urlPattern) || [];
+  const inventedUrls = foundUrls.filter(u => !validUrls.has(u));
+  const urlCounts = new Map<string, number>();
+  for (const u of foundUrls) urlCounts.set(u, (urlCounts.get(u) || 0) + 1);
+  const duplicateUrls = [...urlCounts.entries()].filter(([_, c]) => c > 1).map(([u]) => u);
+
+  if (inventedUrls.length > 0) {
+    console.warn(`[weekly] URLs INVENTADAS detectadas (${inventedUrls.length}):`, inventedUrls.slice(0, 5));
+  }
+  if (duplicateUrls.length > 0) {
+    console.warn(`[weekly] URLs DUPLICADAS detectadas (${duplicateUrls.length}):`, duplicateUrls.slice(0, 5));
+  }
+
+  if (inventedUrls.length > 0 || duplicateUrls.length > 0) {
+    const issues: string[] = [];
+    if (inventedUrls.length > 0) issues.push(`${inventedUrls.length} link(s) inventado(s) por la IA`);
+    if (duplicateUrls.length > 0) issues.push(`${duplicateUrls.length} link(s) duplicado(s) entre secciones`);
+    fullMessage += `\n\n⚠️ *Aviso de calidad*: ${issues.join(' y ')} — revisar antes de reenviar a WhatsApp.`;
+  }
+  // ────────────────────────────────────────────────────────────────────────────
 
   // Notas de aprendizaje (cortas)
   let learningNotes = '';
