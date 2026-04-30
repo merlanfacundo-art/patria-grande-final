@@ -660,15 +660,39 @@ const AREAS: AreaConfig[] = [
     nombre: 'SALUD',
     descripcion: 'salud pública, hospitales, presupuesto, conflictos del sector, vacunas, salud mental, salud sexual, ANMAT, PAMI, obras sociales, medicamentos',
     keywords: [
-      'salud', 'sanitar', 'hospital', 'hospitalari', 'clínica', 'clinica',
-      'medicamento', 'remedio', 'farmac', 'anmat', 'fda', 'vacuna', 'vacunación',
-      'pami', 'obra social', 'prepaga', 'iosfa', 'iomega', 'ioma',
-      'enferma', 'enfermo', 'paciente', 'medic', 'médic', 'doctor',
-      'salud mental', 'suicidio', 'depresión',
-      'salud sexual', 'aborto', 'ile', 'ive', 'eli',
-      'sarampión', 'dengue', 'covid', 'gripe', 'epidem', 'pandem',
-      'apross', 'osde', 'swiss medical', 'galeno',
-      'enfermería', 'enfermera', 'enfermero', 'kinesiolog',
+      // Salud pública / sistema sanitario (frases completas, no palabras sueltas)
+      'salud publica', 'salud pública', 'sistema de salud', 'sistema sanitario',
+      'ministerio de salud', 'secretaria de salud', 'secretaría de salud',
+      'politica sanitaria', 'política sanitaria', 'politica de salud', 'política de salud',
+      'presupuesto en salud', 'presupuesto sanitario',
+      // Hospitales e instituciones
+      'hospital ', 'hospitales', 'hospitalari', 'clínica médica', 'clinica medica',
+      'centro de salud', 'caps', 'sala de salud', 'guardia médica', 'guardia medica',
+      // Medicamentos y reguladores
+      'medicamento', 'medicamentos', 'remedios', 'farmacia',
+      'anmat', 'fda', 'vacuna', 'vacunación', 'vacunacion', 'inmunización', 'inmunizacion',
+      // Coberturas
+      'pami', 'obras sociales', 'obra social', 'prepaga', 'prepagas',
+      'iosfa', 'ioma', 'osecac', 'osde', 'swiss medical', 'galeno', 'medife',
+      // Profesionales y trabajadores
+      'paciente', 'pacientes', 'médico', 'medica', 'médica', 'doctor', 'doctora',
+      'enfermería', 'enfermeria', 'enfermera', 'enfermero', 'kinesiología', 'kinesiologia',
+      'residencias médicas', 'residencias medicas',
+      // Salud mental / sexual
+      'salud mental', 'suicidio', 'depresión clínica', 'depresion clinica',
+      'salud sexual', 'derechos sexuales y reproductivos',
+      'aborto legal', 'ile ', 'ive ', 'interrupcion voluntaria del embarazo',
+      // Enfermedades / epidemias
+      'sarampión', 'sarampion', 'dengue', 'covid', 'sars-cov', 'gripe a',
+      'epidem', 'pandem', 'brote epidemiologico', 'brote epidemiológico',
+      // Conflictos del sector
+      'paritaria de salud', 'paro de salud', 'conflicto sanitario',
+      'recorte en salud', 'desfinanciamiento salud',
+    ],
+    excludeKeywords: [
+      // Evitar matchear "salud y bienestar" en contextos económicos/de consumo
+      'salud financiera', 'salud económica', 'salud economica',
+      'salud del consumidor', 'salud crediticia',
     ],
   },
   {
@@ -693,24 +717,62 @@ const AREAS: AreaConfig[] = [
     nombre: 'BRIGADAS SOLIDARIAS',
     descripcion: 'personas en situación de calle, barrios populares y villas, economía popular, organizaciones territoriales, comedores y merenderos',
     keywords: [
-      'situación de calle', 'situacion de calle', 'sin techo',
-      'barrio popular', 'barrios populares', 'villa', 'asentamiento', 'toma de tierra',
-      'economía popular', 'economia popular', 'mte', 'utep', 'cooperativa',
-      'cartonero', 'vendedor ambulante', 'feriante', 'changarín',
-      'comedor comunitario', 'comedor', 'merendero', 'olla popular',
-      'asistencia alimentaria', 'tarjeta alimentar', 'alimentar',
-      'emergencia habitacional', 'frío', 'invierno', 'desalojo',
-      'ife', 'auh', 'asignación universal', 'plan social', 'potenciar trabajo',
-      'movimientos sociales', 'movimiento popular', 'organización territorial',
-      'frente patria grande', 'patria grande', 'grabois', 'somos barrios de pie',
-      'barrios de pie', 'evita', 'cccc', 'ctep',
-      'pobreza estructural', 'indec pobreza', 'hambre', 'desnutrición',
+      // Situación de calle (frases específicas)
+      'situación de calle', 'situacion de calle', 'personas sin techo',
+      'gente en situacion de calle', 'gente en situación de calle',
+      'paradores', 'parador municipal', 'parador nocturno',
+      // Barrios populares (frases compuestas para evitar match con cualquier "villa")
+      'barrio popular', 'barrios populares', 'villas y asentamientos',
+      'asentamiento informal', 'tomas de tierra', 'reurbanización',
+      'reurbanizacion', 'renabap', 'integración urbana', 'integracion urbana',
+      // Economía popular
+      'economía popular', 'economia popular', 'salario social complementario',
+      'mte ', 'utep ', 'cooperativa de trabajo',
+      'cartoneros', 'recuperadores urbanos',
+      'vendedores ambulantes', 'manteros',
+      'feriantes', 'feria popular',
+      'changas', 'changarines',
+      // Comedores
+      'comedor comunitario', 'comedores comunitarios', 'comedor escolar',
+      'merendero', 'merenderos', 'olla popular', 'ollas populares',
+      'copa de leche',
+      // Asistencia
+      'asistencia alimentaria', 'tarjeta alimentar', 'plan alimentar',
+      'caja de alimentos', 'cajas de alimentos', 'modulo alimentario',
+      'módulo alimentario', 'bolsón alimentario', 'bolson alimentario',
+      // Habitacional / frío
+      'emergencia habitacional', 'desalojo violento', 'desalojos',
+      'operativo frio', 'operativo frío', 'campaña de invierno',
+      // Programas sociales
+      'ife ', 'asignación universal por hijo', 'asignacion universal por hijo',
+      'auh ', 'plan social', 'potenciar trabajo', 'progresar',
+      'pension no contributiva', 'pensión no contributiva',
+      // Movimientos / organizaciones territoriales
+      'movimiento popular', 'organización territorial', 'organizacion territorial',
+      'organizaciones sociales', 'movimientos sociales',
+      'frente patria grande', 'frente de organizaciones',
+      'barrios de pie', 'somos barrios de pie',
+      'movimiento evita', 'corriente clasista combativa',
+      'ctep ', 'la dignidad', 'movimiento popular la dignidad',
+      'grabois',
+      // Pobreza
+      'pobreza estructural', 'pobreza por ingresos', 'indec pobreza',
+      'hambre', 'desnutrición', 'desnutricion',
+      'inseguridad alimentaria',
     ],
     excludeKeywords: [
       // Evitar economía macro genérica
-      'tipo de cambio', 'dólar blue', 'reservas bcra', 'inflación mensual',
+      'tipo de cambio', 'dólar blue', 'dolar blue', 'reservas bcra',
+      'inflación mensual', 'inflacion mensual', 'imae', 'pbi ',
       // Evitar declaraciones eclesiásticas amplias
-      'episcopal', 'episcopado', 'cardenal', 'obispo',
+      'conferencia episcopal', 'episcopal argentina', 'cardenal', 'obispo',
+      // Evitar política partidaria sin vínculo territorial
+      'interna pj', 'interna del pj', 'mesa de gobernadores',
+      // Evitar inseguridad/seguridad genérica
+      'inseguridad delictiva', 'narcotráfico', 'narcotrafico',
+      // Evitar bienestar animal y limpieza/medio ambiente que no son del área
+      'bienestar animal', 'maltrato animal', 'caballos', 'mascotas',
+      'arrojaban basura', 'arrojan basura', 'basura clandestina',
     ],
   },
 ];
@@ -747,10 +809,20 @@ const NATIONAL_MEDIA = [
 ];
 
 const QUILMES_MARKERS = [
-  'quilmes', 'don bosco', 'bernal', 'ezpeleta', 'san francisco solano',
-  'villa la florida', 'villa itati', 'villa itatí', 'la matera',
-  'la cañada', 'la canada', 'iapi', 'don bosco quilmes',
-  'isidoro iriarte', 'hospital iriarte', 'mayra mendoza',
+  // Centros y zonas principales del partido de Quilmes
+  'quilmes', 'quilmes oeste', 'quilmes centro', 'quilmes este',
+  'don bosco', 'bernal', 'bernal oeste', 'bernal este',
+  'ezpeleta', 'ezpeleta oeste', 'ezpeleta este',
+  'san francisco solano', 'solano',
+  // Barrios de Quilmes
+  'villa la florida', 'villa itati', 'villa itatí',
+  'villa lujan', 'villa luján',
+  'la matera', 'la cañada', 'la canada', 'la ribera',
+  'iapi', 'el monte', 'monte chingolo quilmes',
+  // Marcas e instituciones quilmeñas
+  'isidoro iriarte', 'hospital iriarte', 'hospital de quilmes',
+  'mayra mendoza', 'cervecería quilmes', 'cerveceria quilmes',
+  'club atletico quilmes', 'club atlético quilmes',
 ];
 
 // Otros distritos del sur GBA que NO son Quilmes (para excluir)
