@@ -85,7 +85,30 @@ async function callGemini(
       });
 
       if (res.ok) {
-        const data = await res.json();
+        const rawText = await res.text();
+        // Defensive: a veces Gemini (o un proxy upstream) devuelve HTML con status 200
+        // cuando hay problemas. Si vemos HTML, lo tratamos como error transitorio.
+        if (rawText.trim().startsWith('<')) {
+          lastError = `${model} [200 pero HTML]: ${rawText.substring(0, 200)}`;
+          console.warn(`${model} devolvió HTML en lugar de JSON, tratando como error transitorio`);
+          if (attempt < 3) {
+            await new Promise(r => setTimeout(r, retryDelays[attempt]));
+            continue;
+          }
+          break;
+        }
+        let data: any;
+        try {
+          data = JSON.parse(rawText);
+        } catch (parseErr) {
+          lastError = `${model} [JSON parse error]: ${rawText.substring(0, 200)}`;
+          console.error(`${model} respuesta no es JSON válido: ${rawText.substring(0, 200)}`);
+          if (attempt < 3) {
+            await new Promise(r => setTimeout(r, retryDelays[attempt]));
+            continue;
+          }
+          break;
+        }
         const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
         const finishReason = data.candidates?.[0]?.finishReason || 'UNKNOWN';
         if (model !== models[0] || attempt > 0) {
@@ -898,6 +921,31 @@ async function handleWeeklyDigest(
     'Content-Type': 'application/json',
   };
 
+  try {
+    return await runWeeklyDigest(supabase, GEMINI_API_KEY, scheduleName, corsHdrs);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const stack = e instanceof Error ? e.stack : undefined;
+    console.error('[weekly] Crash:', msg);
+    if (stack) console.error('[weekly] Stack:', stack);
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: msg,
+        step: 'weekly_handler',
+        stack: stack ? stack.substring(0, 500) : undefined,
+      }),
+      { status: 500, headers: corsHdrs }
+    );
+  }
+}
+
+async function runWeeklyDigest(
+  supabase: any,
+  GEMINI_API_KEY: string,
+  scheduleName: string,
+  corsHdrs: Record<string, string>
+): Promise<Response> {
   // Ventana de 7 días
   const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const { data: articles, error: artErr } = await supabase
