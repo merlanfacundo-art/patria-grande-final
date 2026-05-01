@@ -700,16 +700,49 @@ const AREAS: AreaConfig[] = [
     nombre: 'GÉNERO',
     descripcion: 'políticas de género, violencia de género, femicidios/travesticidios, leyes de género, derechos LGBTIQ+, aborto, cuidados, maternidad, brecha salarial, paridad',
     keywords: [
-      'género', 'genero', 'feminismo', 'feminista', 'mujer', 'mujeres',
-      'violencia de género', 'violencia machista', 'femicidio', 'travesticidio',
-      'lgbt', 'lgbtiq', 'lgbtq', 'travesti', 'trans', 'no binaria', 'no binarie',
-      'gay', 'lesbiana', 'bisexual', 'orgullo',
-      'aborto', 'ile', 'ive', 'derechos sexuales',
-      'cuidados', 'tareas de cuidado', 'maternidad', 'paternidad', 'licencia',
-      'brecha salarial', 'brecha de género', 'paridad', 'cupo trans', 'cupo laboral travesti',
-      'ni una menos', '8m', '3j', 'esi',
-      'identidad de género', 'matrimonio igualitario', 'salario para amas de casa',
-      'desaparecida', 'búsqueda', 'alerta sofía',
+      // Violencia y crímenes específicos del campo
+      'violencia de género', 'violencia machista', 'violencia patriarcal',
+      'femicidio', 'femicidios', 'travesticidio', 'travesticidios',
+      'transfemicidio', 'lesbicidio',
+      'desaparecida', 'búsqueda activa', 'alerta sofia', 'alerta sofía',
+      'abuso sexual', 'violación', 'violacion',
+      // Movimiento y política
+      'feminismo', 'feminista', 'feministas', 'movimiento de mujeres',
+      'movimiento feminista', 'mujeres trabajadoras', 'mujeres organizadas',
+      'ni una menos', 'paro de mujeres', '8m', '3j',
+      // LGBTIQ+
+      'lgbt', 'lgbtiq', 'lgbtq', 'comunidad lgbt',
+      'identidad de género', 'identidad de genero', 'cupo trans',
+      'cupo laboral travesti', 'cupo laboral trans',
+      'matrimonio igualitario', 'ley de identidad de género',
+      'colectivo travesti', 'colectivo trans',
+      'orgullo lgbt', 'marcha del orgullo',
+      // Derechos sexuales y reproductivos
+      'aborto legal', 'ile ', 'ive ',
+      'interrupción voluntaria del embarazo', 'interrupcion voluntaria del embarazo',
+      'derechos sexuales y reproductivos',
+      'salud sexual y reproductiva', 'objeción de conciencia',
+      // Cuidados / brecha
+      'tareas de cuidado', 'economía del cuidado', 'economia del cuidado',
+      'brecha salarial', 'brecha de género', 'brecha de genero',
+      'paridad de género', 'paridad de genero', 'ley de paridad',
+      'salario para amas de casa', 'reconocimiento de cuidados',
+      // ESI
+      'educación sexual integral', 'educacion sexual integral', 'esi ',
+      // Política específica de género
+      'ministerio de mujeres', 'ministerio de las mujeres',
+      'secretaria de la mujer', 'secretaría de la mujer',
+      'política de género', 'políticas de género', 'politica de genero',
+      // Específicos
+      'travesti', 'trans ', 'no binarie', 'no binaria', 'no binario',
+      'lesbiana', 'lesbianas', 'gay', 'gays', 'bisexual', 'bisexuales',
+    ],
+    excludeKeywords: [
+      // Evitar usos genéricos del término "mujer" en contextos económicos / políticos
+      // que ya tendrían su propia área. Ej: "mujeres y diversidades golpeadas por la inflación"
+      // entra como Brigadas o como tema económico, no como Género.
+      'inflación mensual', 'inflacion mensual', 'tipo de cambio',
+      'reservas bcra', 'dólar blue', 'dolar blue',
     ],
   },
   {
@@ -1109,14 +1142,35 @@ async function runWeeklyDigest(
 
   for (const area of AREAS) {
     for (const level of ['national', 'provincial', 'municipal'] as GeoLevel[]) {
-      const cands = pickCandidates(withShort, area, level, 5);
+      const cands = pickCandidates(withShort, area, level, 8); // 8 candidatos brutos por celda
       const key = `${area.nombre}__${level}`;
       candidatesByAreaLevel[key] = cands;
-      candidateStats[key] = cands.length;
     }
   }
 
-  console.log(`[weekly] Candidatos pre-seleccionados:`, candidateStats);
+  // ── Dedup global entre celdas ───────────────────────────────────────────────
+  // Si una URL aparece como candidato en múltiples celdas, la dejamos SOLO en la
+  // primera celda que la contenga (orden definido por AREAS × niveles).
+  // Esto evita que Gemini meta la misma nota en dos secciones distintas.
+  // Después del dedup, recortamos cada celda a 5 candidatos.
+  const seenUrls = new Set<string>();
+  for (const area of AREAS) {
+    for (const level of ['national', 'provincial', 'municipal'] as GeoLevel[]) {
+      const key = `${area.nombre}__${level}`;
+      const original = candidatesByAreaLevel[key] || [];
+      const filtered: CandidateArticle[] = [];
+      for (const cand of original) {
+        if (cand.url_short && seenUrls.has(cand.url_short)) continue; // ya usada en otra celda
+        if (cand.url_short) seenUrls.add(cand.url_short);
+        filtered.push(cand);
+        if (filtered.length >= 5) break; // máximo 5 por celda después del dedup
+      }
+      candidatesByAreaLevel[key] = filtered;
+      candidateStats[key] = filtered.length;
+    }
+  }
+
+  console.log(`[weekly] Candidatos pre-seleccionados (post-dedup):`, candidateStats);
 
   // Verificar que al menos haya algo para generar
   const totalCandidates = Object.values(candidateStats).reduce((a, b) => a + b, 0);
