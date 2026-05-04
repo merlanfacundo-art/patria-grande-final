@@ -1,4 +1,10 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import {
+  PERIODISTAS,
+  detectJournalist,
+  orientationScore,
+  type Periodista,
+} from '../_shared/journalists.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -358,15 +364,21 @@ Deno.serve(async (req) => {
     );
 
     const body = await req.json().catch(() => ({}));
-    // digest_type: 'personal' | 'group' | 'weekly'
-    const digestType: 'personal' | 'group' | 'weekly' = body.digest_type || 'group';
+    // digest_type: 'personal' | 'group' | 'weekly' | 'monday_realidad'
+    const digestType: 'personal' | 'group' | 'weekly' | 'monday_realidad' = body.digest_type || 'group';
     const scheduleName: string = body.schedule_name || 'Manual';
 
-    // ── Rama: boletín semanal (sábados 10:00) ─────────────────────────────────
-    // Lógica completamente separada del flujo diario. NO modifica nada del
-    // pipeline de personal/group.
+    // ── Rama: boletín semanal (martes 20:00 — antes sábados) ──────────────────
+    // Lógica completamente separada del flujo diario.
     if (digestType === 'weekly') {
       return await handleWeeklyDigest(supabase, GEMINI_API_KEY, scheduleName);
+    }
+
+    // ── Rama: boletín lunes "La única verdad es la realidad" ──────────────────
+    // Temas centrales de la última semana, AR + PBA + Quilmes, con clustering
+    // y multi-link por nota. Lógica separada del flujo diario.
+    if (digestType === 'monday_realidad') {
+      return await handleMondayRealidad(supabase, GEMINI_API_KEY, scheduleName);
     }
 
     // ── 1. Obtener artículos de las últimas 24hs ──────────────────────────────
@@ -1301,6 +1313,459 @@ async function runWeeklyDigest(
       candidates_by_cell: candidateStats,
       message_length: fullMessage.length,
       models_used: [r1.modelUsed],
+    }),
+    { headers: corsHdrs }
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// MÓDULO: BOLETÍN LUNES — "La única verdad es la realidad"
+// ═════════════════════════════════════════════════════════════════════════════
+// Temas centrales de la última semana en Argentina, con clustering por
+// keywords (varios medios cubriendo el mismo tema → una sola entrada con
+// múltiples links) y boost por firmas del dataset de periodistas.
+
+// Stopwords castellano + términos genéricos a ignorar al armar clusters
+const CLUSTERING_STOPWORDS = new Set([
+  'el','la','los','las','un','una','unos','unas','de','del','al','a','y','o',
+  'en','con','por','para','sobre','sin','entre','que','se','su','sus','este',
+  'esta','estos','estas','ese','esa','esos','esas','aquel','aquella','aquellos',
+  'aquellas','lo','le','les','me','te','nos','vos','tu','mi','ya','no','si',
+  'ni','muy','mas','mucho','más','menos','también','pero','aunque','cuando',
+  'mientras','donde','como','así','ante','tras','desde','hasta','según','vs',
+  'foto','video','en vivo','tras','últimas','noticias','noticia','hoy','ayer',
+  'mañana','semana','mes','año','dia','día','información','información',
+  // Argentinismos comunes que aparecen siempre y no aportan
+  'argentina','argentino','argentinos','argentinas','milei','gobierno','presidente',
+]);
+
+function extractKeywords(text: string): string[] {
+  // Normalizar
+  const norm = (text || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9ñ\s-]/g, ' ');
+  const tokens = norm.split(/\s+/).filter(t => t.length >= 5 && !CLUSTERING_STOPWORDS.has(t));
+  // Solo tokens "significativos" (longitud >= 5)
+  return [...new Set(tokens)];
+}
+
+interface RawArticle {
+  title: string;
+  summary: string;
+  url: string;
+  url_short: string;
+  scraped_at: string;
+  source_name: string;
+  level: GeoLevel | 'unknown';
+  // Campos derivados:
+  keywords: string[];
+  journalist: Periodista | null;
+  score: number;
+}
+
+interface Cluster {
+  // Representante: el artículo más reciente del cluster
+  representative: RawArticle;
+  // Todos los artículos del cluster (incluye al representante)
+  articles: RawArticle[];
+  // Score agregado del cluster (suma de scores de cada artículo)
+  totalScore: number;
+  // Keywords compartidas (intersección de los más recientes)
+  commonKeywords: string[];
+}
+
+function clusterArticles(articles: RawArticle[]): Cluster[] {
+  // Algoritmo simple: dos artículos están en el mismo cluster si comparten
+  // al menos 2 keywords significativas. Iteramos en orden de fecha (más
+  // reciente primero) y vamos agregando.
+  const sorted = [...articles].sort(
+    (a, b) => new Date(b.scraped_at).getTime() - new Date(a.scraped_at).getTime()
+  );
+
+  const clusters: Cluster[] = [];
+
+  for (const art of sorted) {
+    let assigned = false;
+    for (const c of clusters) {
+      const shared = art.keywords.filter(k => c.commonKeywords.includes(k));
+      if (shared.length >= 2) {
+        c.articles.push(art);
+        c.totalScore += art.score;
+        // Recalcular commonKeywords: intersección
+        c.commonKeywords = c.commonKeywords.filter(k => art.keywords.includes(k));
+        assigned = true;
+        break;
+      }
+    }
+    if (!assigned) {
+      clusters.push({
+        representative: art,
+        articles: [art],
+        totalScore: art.score,
+        commonKeywords: [...art.keywords],
+      });
+    }
+  }
+
+  // Para cada cluster, asegurar que el representante sea el más reciente
+  // (ya lo es por orden de iteración pero por las dudas):
+  for (const c of clusters) {
+    c.articles.sort((a, b) =>
+      new Date(b.scraped_at).getTime() - new Date(a.scraped_at).getTime()
+    );
+    c.representative = c.articles[0];
+  }
+
+  return clusters;
+}
+
+function scoreArticle(art: RawArticle): number {
+  // Base: 1
+  let score = 1.0;
+  // Boost por firma reconocida
+  if (art.journalist) {
+    score += orientationScore(art.journalist.orientacion);
+  }
+  // Boost leve si tiene resumen sustantivo (no solo título)
+  if (art.summary && art.summary.length > 80) score += 0.3;
+  return score;
+}
+
+async function handleMondayRealidad(
+  supabase: any,
+  GEMINI_API_KEY: string,
+  scheduleName: string
+): Promise<Response> {
+  const corsHdrs = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Content-Type': 'application/json',
+  };
+
+  try {
+    return await runMondayRealidad(supabase, GEMINI_API_KEY, scheduleName, corsHdrs);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const stack = e instanceof Error ? e.stack : undefined;
+    console.error('[monday] Crash:', msg);
+    if (stack) console.error('[monday] Stack:', stack);
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: msg,
+        step: 'monday_handler',
+        stack: stack ? stack.substring(0, 500) : undefined,
+      }),
+      { status: 500, headers: corsHdrs }
+    );
+  }
+}
+
+async function runMondayRealidad(
+  supabase: any,
+  GEMINI_API_KEY: string,
+  scheduleName: string,
+  corsHdrs: Record<string, string>
+): Promise<Response> {
+  // Ventana de 7 días
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const { data: articles, error: artErr } = await supabase
+    .from('scraped_articles')
+    .select('*, media_sources(name, category, language)')
+    .gte('scraped_at', since)
+    .order('scraped_at', { ascending: false })
+    .limit(800);
+
+  if (artErr) throw artErr;
+  if (!articles || articles.length === 0) {
+    return new Response(
+      JSON.stringify({ success: true, message: 'Sin artículos en los últimos 7 días' }),
+      { headers: corsHdrs }
+    );
+  }
+
+  // Filtro de páginas de sección/agenda (mismo isLikelySectionPage del weekly)
+  const isLikelySectionPage = (a: any): boolean => {
+    const url = (a.url || '').toLowerCase();
+    const title = (a.title || '').toLowerCase().trim();
+    if (/\/(category|categoria|categorias|seccion|secciones|sección|tag|tags|agenda|todos|todas|archivo|archivos)\b/.test(url)) return true;
+    const pathSegments = url.replace(/^https?:\/\/[^/]+/, '').split('/').filter(Boolean);
+    if (pathSegments.length <= 1) return true;
+    const genericTitles = [
+      /^(cultura|educaci[oó]n|salud|g[eé]nero|pol[ií]tica|deportes|sociedad|econom[ií]a)\s*[-|–—]/i,
+      /archivos?$/i,
+      /^agenda\b/i,
+      /\bsecci[oó]n\b/i,
+      /\bcategor[ií]a\b/i,
+      /^novedades$/i,
+    ];
+    if (genericTitles.some(re => re.test(title))) return true;
+    if (title.length < 25) return true;
+    return false;
+  };
+
+  const articlesFiltered = articles.filter((a: any) => !isLikelySectionPage(a));
+  console.log(`[monday] Filtrados (sección): ${articles.length - articlesFiltered.length}, restantes: ${articlesFiltered.length}`);
+
+  if (articlesFiltered.length === 0) {
+    return new Response(
+      JSON.stringify({ success: true, message: 'Sin artículos válidos tras el filtro' }),
+      { headers: corsHdrs }
+    );
+  }
+
+  // Acortar URLs
+  const allUrls = articlesFiltered.map((a: any) => a.url).filter(Boolean);
+  const shortUrlMap = await shortenAll(allUrls);
+
+  // Enriquecer cada artículo con campos derivados
+  const enriched: RawArticle[] = articlesFiltered.map((a: any) => {
+    const sourceName = a.media_sources?.name || '?';
+    const journalist = detectJournalist(a.title || '', a.summary || '', sourceName);
+    const level = detectGeoLevel(a);
+    const keywords = extractKeywords(`${a.title} ${a.summary}`);
+    const obj: RawArticle = {
+      title: a.title || '',
+      summary: (a.summary || '').substring(0, 300),
+      url: a.url || '',
+      url_short: shortUrlMap.get(a.url) || a.url || '',
+      scraped_at: a.scraped_at,
+      source_name: sourceName,
+      level,
+      keywords,
+      journalist,
+      score: 0,
+    };
+    obj.score = scoreArticle(obj);
+    return obj;
+  });
+
+  // Filtros: solo Argentina, descartar 'unknown' (probablemente extranjero)
+  const onlyArgentina = enriched.filter(a => a.level !== 'unknown');
+
+  console.log(`[monday] Artículos AR (national+provincial+municipal): ${onlyArgentina.length}`);
+
+  // Clustering por nivel
+  const byLevel = {
+    national: onlyArgentina.filter(a => a.level === 'national'),
+    provincial: onlyArgentina.filter(a => a.level === 'provincial'),
+    municipal: onlyArgentina.filter(a => a.level === 'municipal'),
+  };
+
+  const clustersNat = clusterArticles(byLevel.national);
+  const clustersProv = clusterArticles(byLevel.provincial);
+  const clustersMun = clusterArticles(byLevel.municipal);
+
+  // Ordenar clusters por totalScore desc y tomar topN
+  const TOP_NAT = 4;
+  const TOP_PROV = 2;
+  const TOP_MUN = 2;
+  clustersNat.sort((a, b) => b.totalScore - a.totalScore);
+  clustersProv.sort((a, b) => b.totalScore - a.totalScore);
+  clustersMun.sort((a, b) => b.totalScore - a.totalScore);
+  const topNat = clustersNat.slice(0, TOP_NAT);
+  const topProv = clustersProv.slice(0, TOP_PROV);
+  const topMun = clustersMun.slice(0, TOP_MUN);
+
+  console.log(`[monday] Clusters: nacional=${clustersNat.length} (top ${topNat.length}), provincial=${clustersProv.length} (top ${topProv.length}), municipal=${clustersMun.length} (top ${topMun.length})`);
+
+  if (topNat.length === 0 && topProv.length === 0 && topMun.length === 0) {
+    return new Response(
+      JSON.stringify({ success: true, message: 'No hay clusters relevantes esta semana' }),
+      { headers: corsHdrs }
+    );
+  }
+
+  // Fecha
+  const nowAR = new Date(Date.now() - 3 * 60 * 60 * 1000);
+  const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+  const monthNames = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  const dateLong = `${dayNames[nowAR.getUTCDay()]} ${nowAR.getUTCDate()} de ${monthNames[nowAR.getUTCMonth()]} de ${nowAR.getUTCFullYear()}`;
+  const dateShort = `${String(nowAR.getUTCDate()).padStart(2, '0')}/${String(nowAR.getUTCMonth() + 1).padStart(2, '0')}`;
+
+  // Armar prompt: cada cluster se presenta con representante (más reciente) +
+  // hasta 4 fuentes alternativas para que Gemini elija las mejores 2-3 miradas.
+  const formatCluster = (c: Cluster, idx: number): string => {
+    const rep = c.representative;
+    const others = c.articles.slice(1, 5); // hasta 4 fuentes alternativas
+    let txt = `\n[Cluster ${idx + 1}] (score=${c.totalScore.toFixed(1)}, ${c.articles.length} fuentes)\n`;
+    txt += `  Más reciente: "${rep.title}" | ${rep.source_name}`;
+    if (rep.journalist) txt += ` (firma: ${rep.journalist.firma}, ${rep.journalist.orientacion})`;
+    txt += `\n    URL: ${rep.url_short}\n    Resumen: ${rep.summary}\n`;
+    if (others.length > 0) {
+      txt += `  Otras fuentes del mismo tema:\n`;
+      for (const o of others) {
+        txt += `    - "${o.title}" | ${o.source_name}`;
+        if (o.journalist) txt += ` (${o.journalist.orientacion})`;
+        txt += ` | ${o.url_short}\n`;
+      }
+    }
+    return txt;
+  };
+
+  const buildClustersBlock = (clusters: Cluster[], levelLabel: string): string => {
+    if (clusters.length === 0) return `\n[${levelLabel}: sin material esta semana — OMITIR esta sección]\n`;
+    return `\n[${levelLabel}: ${clusters.length} cluster(s)]\n` + clusters.map(formatCluster).join('\n');
+  };
+
+  const systemPrompt = `Sos el editor del boletín lunes "La única verdad es la realidad" de Patria Grande Quilmes, una organización peronista y popular argentina.
+
+El boletín del lunes recapitula los temas centrales de la última semana en Argentina, ordenados en 3 bloques: Nacional, Provincial (Buenos Aires) y Local (Quilmes).
+
+REGLAS DEL ENVÍO:
+- Lenguaje militante peronista pero ACCESIBLE — para simpatizantes con contexto político medio.
+- Tono concreto y directo. Que se note el posicionamiento sin caer en consigna vacía.
+- Perspectiva de género NATURAL: cuando el tema lo amerita, no forzada.
+- Puntuación castellana correcta: ¡! y ¿? donde corresponda.
+
+CONTENIDO POR NOTA:
+- Cada nota debe basarse FIELMENTE en el título y resumen del cluster que te paso. NO inventes detalles que no estén ahí.
+- 2 oraciones máximo por nota.
+- Usar el url_short EXACTO de las fuentes del cluster. NO modificar.
+- Para cada nota, incluir 2-3 links de medios DISTINTOS del mismo cluster (la idea es mostrar diferentes miradas del mismo hecho). Si un cluster solo tiene 1 fuente, va con 1 link.
+
+REGLAS DE GEOGRAFÍA ESTRICTA:
+- 🇦🇷 NACIONAL: SOLO temas que afectan al país. NO temas internacionales.
+- 🏛️ PROVINCIAL: SOLO Provincia de Buenos Aires.
+- 📍 LOCAL: SOLO el partido de Quilmes (no otros distritos).
+
+REGLAS ABSOLUTAS:
+1. Solo usar URLs que aparezcan en los clusters que te paso.
+2. NO repetir la misma URL entre secciones (cada link aparece una sola vez en todo el boletín).
+3. Si una sección no tiene clusters, OMITILA enteramente — no rellenar con material forzado.
+4. NO inventes que "Patria Grande hizo X" si eso no aparece en los artículos.
+
+ESTRUCTURA EXACTA del boletín que tenés que generar:
+
+🗞️ *LA ÚNICA VERDAD ES LA REALIDAD*
+📅 ${dateLong}
+
+━━━━━━━━━━━━━━━━━
+🔗 LO QUE PASÓ ESTA SEMANA
+━━━━━━━━━━━━━━━━━
+[2-3 oraciones de panorama integrador. Conectá los temas principales sin inventar. Tono concreto.]
+
+━━━━━━━━━━━━━━━━━
+🇦🇷 NACIONAL
+━━━━━━━━━━━━━━━━━
+▪️ *[Título del tema]*
+[2 oraciones: qué pasó esta semana + por qué importa. Si el tema tuvo evolución, mencionar la última novedad.]
+🔗 [link1] (Medio1) · [link2] (Medio2) · [link3] (Medio3)
+
+[Hasta ${TOP_NAT} temas nacionales en total]
+
+━━━━━━━━━━━━━━━━━
+🏛️ PROVINCIAL (BUENOS AIRES)
+━━━━━━━━━━━━━━━━━
+▪️ *[Título]*
+[2 oraciones]
+🔗 [links]
+
+[Hasta ${TOP_PROV} temas provinciales]
+
+━━━━━━━━━━━━━━━━━
+📍 LOCAL (QUILMES)
+━━━━━━━━━━━━━━━━━
+▪️ *[Título]*
+[1-2 oraciones]
+🔗 [links]
+
+[Hasta ${TOP_MUN} temas locales]
+
+━━━━━━━━━━━━━━━━━
+✌️🇦🇷 *Patria Grande* | Lun ${dateShort} — 20:00`;
+
+  const userPrompt = `Generá el boletín lunes "La única verdad es la realidad" con los siguientes clusters de noticias de la última semana.
+
+Cada cluster representa un mismo TEMA cubierto por varios medios. El "Más reciente" es el que mejor refleja la última novedad. Las "Otras fuentes" son del mismo tema en otros medios — usalas para dar diferentes miradas en cada nota (2-3 links por nota cuando sea posible).
+
+Las firmas marcadas como (peronista) o (progresista) o (independiente_critico) tienen prioridad en la selección de fuentes. (conservador) puede usarse para mostrar la mirada del adversario, pero no debe ser la única fuente.
+
+${buildClustersBlock(topNat, 'NACIONAL')}
+${buildClustersBlock(topProv, 'PROVINCIAL')}
+${buildClustersBlock(topMun, 'LOCAL_QUILMES')}
+
+Generá ahora el boletín completo siguiendo la estructura del system prompt. No agregues texto antes ni después de la estructura.`;
+
+  console.log(`[${scheduleName}] Generando boletín lunes con ${topNat.length + topProv.length + topMun.length} clusters totales`);
+
+  const r1 = await callGemini(GEMINI_API_KEY, systemPrompt, userPrompt, 10000);
+  let fullMessage = r1.text.trim();
+
+  console.log(`[${scheduleName}] Modelo usado: ${r1.modelUsed}`);
+  console.log(`[${scheduleName}] Longitud final: ${fullMessage.length} chars`);
+
+  // ── Validación post-Gemini (mismo patrón del weekly) ─────────────────────
+  const validUrls = new Set<string>();
+  for (const c of [...topNat, ...topProv, ...topMun]) {
+    for (const a of c.articles) if (a.url_short) validUrls.add(a.url_short);
+  }
+
+  const urlPattern = /https?:\/\/[^\s)]+/g;
+  const foundUrls = (fullMessage.match(urlPattern) || []).map(u => u.replace(/[.,;:!?)]+$/, ''));
+  const inventedUrls = foundUrls.filter(u => !validUrls.has(u));
+  const urlCounts = new Map<string, number>();
+  for (const u of foundUrls) urlCounts.set(u, (urlCounts.get(u) || 0) + 1);
+  const duplicateUrls = [...urlCounts.entries()].filter(([_, c]) => c > 1).map(([u]) => u);
+
+  if (inventedUrls.length > 0) {
+    console.warn(`[monday] URLs INVENTADAS (${inventedUrls.length}):`, inventedUrls.slice(0, 5));
+  }
+  if (duplicateUrls.length > 0) {
+    console.warn(`[monday] URLs DUPLICADAS (${duplicateUrls.length}):`, duplicateUrls.slice(0, 5));
+  }
+  if (inventedUrls.length > 0 || duplicateUrls.length > 0) {
+    const issues: string[] = [];
+    if (inventedUrls.length > 0) issues.push(`${inventedUrls.length} link(s) inventado(s) por la IA`);
+    if (duplicateUrls.length > 0) issues.push(`${duplicateUrls.length} link(s) duplicado(s) entre secciones`);
+    fullMessage += `\n\n⚠️ *Aviso de calidad*: ${issues.join(' y ')} — revisar antes de reenviar.`;
+  }
+
+  // Notas de aprendizaje (cortas)
+  let learningNotes = '';
+  try {
+    const learningPrompt = `Analizá brevemente el boletín lunes recién generado:\n${fullMessage.substring(0, 1500)}\n\nGenerá 3 notas de aprendizaje sobre qué se podría mejorar en próximos boletines lunes (formato lista, 200 palabras máximo).`;
+    const { text } = await callGemini(GEMINI_API_KEY, 'Sos un editor crítico. Castellano rioplatense.', learningPrompt, 800);
+    learningNotes = text;
+  } catch {
+    learningNotes = 'Sin notas de aprendizaje en este ciclo.';
+  }
+
+  // Guardar en DB
+  const { data: digest, error: digestErr } = await supabase
+    .from('digest_sends')
+    .insert({
+      telegram_message: fullMessage,
+      articles_count: articlesFiltered.length,
+      status: 'pending',
+      digest_type: 'monday_realidad',
+      learning_notes: learningNotes,
+    })
+    .select()
+    .single();
+
+  if (digestErr) throw digestErr;
+
+  return new Response(
+    JSON.stringify({
+      success: true,
+      digest_id: digest.id,
+      digest_type: 'monday_realidad',
+      articles_count: articlesFiltered.length,
+      clusters: {
+        nacional_total: clustersNat.length,
+        nacional_top: topNat.length,
+        provincial_total: clustersProv.length,
+        provincial_top: topProv.length,
+        municipal_total: clustersMun.length,
+        municipal_top: topMun.length,
+      },
+      message_length: fullMessage.length,
+      models_used: [r1.modelUsed],
+      duplicates_detected: duplicateUrls.length,
+      invented_detected: inventedUrls.length,
     }),
     { headers: corsHdrs }
   );
