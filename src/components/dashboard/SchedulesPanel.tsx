@@ -6,11 +6,12 @@ import { Switch } from "@/components/ui/switch";
 import { Clock, Info } from "lucide-react";
 
 // Mapeo de schedule name → tipo
-const scheduleTypeMap: Record<string, { type: "personal" | "group" | "weekly"; emoji: string }> = {
-  "Resumen 07:00":  { type: "personal", emoji: "📋" },
-  "Resumen 13:00":  { type: "personal", emoji: "📋" },
-  "Boletín 20:00":  { type: "group",    emoji: "🗞️" },
-  "Semanal Sábado": { type: "weekly",   emoji: "📅" },
+const scheduleTypeMap: Record<string, { type: "personal" | "group" | "weekly" | "monday_realidad"; emoji: string }> = {
+  "Resumen 07:00":  { type: "personal",          emoji: "📋" },
+  "Resumen 13:00":  { type: "personal",          emoji: "📋" },
+  "Boletín 20:00":  { type: "group",             emoji: "🗞️" },
+  "Semanal Sábado": { type: "weekly",            emoji: "📅" },
+  "Lunes Realidad": { type: "monday_realidad",   emoji: "🗞️" },
 };
 
 export function SchedulesPanel() {
@@ -73,7 +74,12 @@ export function SchedulesPanel() {
                       <div className="flex flex-wrap items-center gap-2 mt-2">
                         <code className="text-xs bg-muted px-1.5 py-0.5 rounded">{s.cron_expression}</code>
                         <Badge variant="outline" className="text-xs">
-                          {meta.type === "personal" ? "Solo a Facu" : meta.type === "weekly" ? "Semanal — Grupo" : "Grupo WhatsApp"}
+                          {
+                            meta.type === "personal" ? "Solo a Facu" :
+                            meta.type === "weekly" ? "Semanal — Grupo" :
+                            meta.type === "monday_realidad" ? "Lunes — Grupo" :
+                            "Grupo WhatsApp"
+                          }
                         </Badge>
                       </div>
                     </div>
