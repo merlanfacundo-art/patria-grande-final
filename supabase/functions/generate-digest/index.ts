@@ -397,4 +397,911 @@ Deno.serve(async (req) => {
 
     const lastMessage = lastDigest?.telegram_message || '';
     const lastSentAt = lastDigest?.created_at ? new Date(lastDigest.created_at) : null;
-    const l
+    const lastLearning = lastDigest?.learning_notes || '';
+
+    // ── 3. Deduplicar por URL usada en el último mensaje ──────────────────────
+    const freshArticles = articles.filter((a: any) => !lastMessage.includes(a.url));
+    const articlesToUse = freshArticles.length >= 3 ? freshArticles : articles;
+
+    // Artículos nuevos desde el último envío (para análisis personal)
+    const novelArticles = lastSentAt
+      ? articlesToUse.filter((a: any) => new Date(a.scraped_at) > lastSentAt)
+      : articlesToUse;
+
+    // ── 4. Clasificar en noticias / análisis ──────────────────────────────────
+    const { noticias, analisis } = classifyArticles(articlesToUse);
+
+    if (noticias.length === 0 && analisis.length === 0) {
+      return new Response(
+        JSON.stringify({ success: true, message: 'Sin artículos categorizables' }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // ── 5. Acortar todos los URLs de una vez (batch, gratuito vía TinyURL) ────
+    const allUrls = articlesToUse.map((a: any) => a.url).filter(Boolean);
+    const shortUrlMap = await shortenAll(allUrls);
+
+    // Reemplazar URLs en los artículos con sus versiones acortadas
+    const withShortUrls = articlesToUse.map((a: any) => ({
+      ...a,
+      url_short: shortUrlMap.get(a.url) || a.url,
+    }));
+    const noticiasShort = withShortUrls.filter((a: any) =>
+      noticias.some((n: any) => n.id === a.id)
+    );
+    const analisisShort = withShortUrls.filter((a: any) =>
+      analisis.some((n: any) => n.id === a.id)
+    );
+    const novelAnalisisShort = withShortUrls.filter((a: any) =>
+      novelArticles.some((n: any) => n.id === a.id) &&
+      analisis.some((n: any) => n.id === a.id)
+    );
+
+    // ── 6. Construir el contexto para el prompt ────────────────────────────────
+    const formatArticleList = (arts: any[], label: string, limit = 50) => {
+      if (arts.length === 0) return '';
+      const lines = arts.slice(0, limit).map((a: any) => {
+        const src = a.media_sources as any;
+        return `- "${a.title}" | ${src?.name || '?'} | ${a.url_short}\n  Resumen: ${(a.summary || '').substring(0, 250)}`;
+      }).join('\n');
+      return `## ${label} (${arts.length})\n${lines}`;
+    };
+
+    const articlesContext = [
+      formatArticleList(noticiasShort, 'NOTICIAS', digestType === 'personal' ? 80 : 40),
+      formatArticleList(analisisShort, 'ANÁLISIS Y PERIODISTAS', digestType === 'personal' ? 40 : 20),
+    ].filter(Boolean).join('\n\n');
+
+    const novelContext = novelAnalisisShort.length > 0
+      ? `\n\n## NOVEDADES DE ANÁLISIS DESDE EL ÚLTIMO ENVÍO (incluir TODAS en sección Análisis)\n` +
+        novelAnalisisShort.map((a: any) => {
+          const src = a.media_sources as any;
+          return `- "${a.title}" | ${src?.name || '?'} | ${a.url_short}`;
+        }).join('\n')
+      : '';
+
+    const previousContext = lastMessage
+      ? `\n\n## ÚLTIMO BOLETÍN ENVIADO (para continuidad, dedup y comparación)\n${lastMessage.substring(0, 2000)}`
+      : '';
+
+    const learningContext = lastLearning
+      ? `\n\n## APRENDIZAJES DEL CICLO ANTERIOR (aplicar para mejorar este envío)\n${lastLearning}`
+      : '';
+
+    const allowedUrlsBlock = `\n\n## URLs PERMITIDAS (solo estas, textuales, ya acortadas)\n${
+      withShortUrls.map((a: any) => a.url_short).filter(Boolean).join('\n')
+    }`;
+
+    // Formatear fecha y hora actual en zona horaria de Argentina (UTC-3)
+    const nowArgentina = new Date(Date.now() - 3 * 60 * 60 * 1000);
+    const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+    const monthNames = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+                        'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+    const dayName = dayNames[nowArgentina.getUTCDay()];
+    const dayNum = nowArgentina.getUTCDate();
+    const monthName = monthNames[nowArgentina.getUTCMonth()];
+    const year = nowArgentina.getUTCFullYear();
+    const dateLong = `${dayName} ${dayNum} de ${monthName} de ${year}`;
+    const dateShort = `${String(dayNum).padStart(2, '0')}/${String(nowArgentina.getUTCMonth() + 1).padStart(2, '0')}`;
+
+    const userPrompt = `Generá el ${digestType === 'personal' ? 'resumen personal' : 'boletín grupal'} "${scheduleName}".
+
+FECHA ACTUAL (usar SIEMPRE esta fecha, NO inventar otra):
+- Fecha larga: ${dateLong}
+- Fecha corta: ${dateShort}
+
+${articlesContext}${novelContext}${previousContext}${learningContext}${allowedUrlsBlock}
+
+RECORDATORIO CRÍTICO:
+- Usá ÚNICAMENTE las URLs de la lista "URLs PERMITIDAS". Nunca inventar links ni usar homepages.
+- Todos los links ya están acortados (tinyurl). Usalos textualmente.
+- ${digestType === 'personal'
+    ? 'Incluir TODAS las novedades de análisis desde el último envío.'
+    : 'Máximo 2 nacionales + 1 internacional + 1 fuera de agenda + 2-3 análisis. 300-400 palabras total.'}
+- Perspectiva de género donde aplique naturalmente.
+- Puntuación castellana: ¡! y ¿? donde corresponda.
+- Usá la fecha exacta que está arriba. NO generes una fecha distinta.`;
+
+    // ── 7. Llamar a Gemini ────────────────────────────────────────────────────
+    const systemPrompt = digestType === 'personal'
+      ? buildPersonalSystemPrompt()
+      : buildGroupSystemPrompt();
+
+    // Resumen personal = más largo (hasta 16384 tokens ≈ 10000 palabras)
+    // Boletín grupal = target 300-400 palabras, pero reservamos 8192 tokens
+    // porque Gemini 2.5 Flash consume tokens en "pensamiento" interno que no
+    // se ve en la salida. Con 4096 se truncaba.
+    const maxTokens = digestType === 'personal' ? 16384 : 8192;
+
+    const { text: digestMessage, finishReason, modelUsed } = await callGemini(
+      GEMINI_API_KEY, systemPrompt, userPrompt, maxTokens
+    );
+
+    if (!digestMessage) throw new Error('Gemini devolvió respuesta vacía');
+
+    if (finishReason === 'MAX_TOKENS') {
+      console.warn(`[${scheduleName}] Gemini llegó al límite de tokens (${maxTokens}). El mensaje puede estar truncado.`);
+    }
+
+    console.log(`[${scheduleName}] Modelo usado: ${modelUsed}`);
+
+    // ── Validación post-Gemini: detectar URLs duplicadas entre secciones ──────
+    // Cada URL debe aparecer una sola vez en todo el mensaje. Si aparece más,
+    // dejamos un aviso al final para que se revise antes de reenviar.
+    let cleanMessage = digestMessage;
+    const urlPattern = /https?:\/\/[^\s)]+/g;
+    const foundUrls = (digestMessage.match(urlPattern) || []).map(u => u.replace(/[.,;:!?)]+$/, ''));
+    const urlCounts = new Map<string, number>();
+    for (const u of foundUrls) urlCounts.set(u, (urlCounts.get(u) || 0) + 1);
+    const duplicateUrls = [...urlCounts.entries()].filter(([_, c]) => c > 1).map(([u]) => u);
+
+    if (duplicateUrls.length > 0) {
+      console.warn(`[${scheduleName}] URLs duplicadas detectadas (${duplicateUrls.length}):`, duplicateUrls.slice(0, 5));
+      cleanMessage = digestMessage.trimEnd()
+        + `\n\n⚠️ *Aviso de calidad*: ${duplicateUrls.length} link(s) duplicado(s) entre secciones — revisar antes de reenviar.`;
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // ── 8. Guardar en DB solo si es boletín grupal ────────────────────────────
+    if (digestType === 'group') {
+      // Pedir a Gemini que genere notas de aprendizaje para el próximo ciclo
+      const learningPrompt = `Analizás este boletín político que acabás de generar y el anterior.
+Boletín anterior:\n${lastMessage.substring(0, 1000)}
+Boletín nuevo:\n${digestMessage.substring(0, 1000)}
+
+Generá 3-5 notas de aprendizaje CONCRETAS y BREVES sobre:
+- Qué mejoró respecto al anterior
+- Qué podría ser mejor en el próximo
+- Qué formato/enfoque funcionó mejor
+- Algún tema de género que se podría haber profundizado más
+
+Formato: lista con guiones. Máximo 300 palabras en total.`;
+
+      let learningNotes = '';
+      try {
+        const { text } = await callGemini(
+          GEMINI_API_KEY,
+          'Sos un editor crítico de boletines políticos. Respondé solo en castellano rioplatense.',
+          learningPrompt,
+          1024
+        );
+        learningNotes = text;
+      } catch {
+        learningNotes = 'Sin notas de aprendizaje generadas en este ciclo.';
+      }
+
+      const { data: digest, error: digestErr } = await supabase
+        .from('digest_sends')
+        .insert({
+          telegram_message: cleanMessage,
+          articles_count: articlesToUse.length,
+          status: 'pending',
+          learning_notes: learningNotes,
+        })
+        .select()
+        .single();
+
+      if (digestErr) throw digestErr;
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          digest_id: digest.id,
+          digest_type: 'group',
+          articles_count: articlesToUse.length,
+          noticias_count: noticias.length,
+          analisis_count: analisis.length,
+          message_length: cleanMessage.length,
+          duplicates_detected: duplicateUrls.length,
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // ── Resumen personal: solo devolver el mensaje, no guardar en DB ──────────
+    return new Response(
+      JSON.stringify({
+        success: true,
+        digest_type: 'personal',
+        message: cleanMessage,
+        articles_count: articlesToUse.length,
+        noticias_count: noticias.length,
+        analisis_count: analisis.length,
+        novel_analysis_count: novelAnalisisShort.length,
+        message_length: cleanMessage.length,
+        duplicates_detected: duplicateUrls.length,
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+
+  } catch (error) {
+    console.error('Error generate-digest:', error);
+    return new Response(
+      JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Unknown' }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+    );
+  }
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// MÓDULO: BOLETÍN SEMANAL (sábados 10:00 ART)
+// ═════════════════════════════════════════════════════════════════════════════
+// Estructura: 5 áreas de trabajo de Patria Grande Quilmes × 3 niveles cada una.
+// Áreas: Cultura, Educación, Salud, Género, Brigadas Solidarias.
+// Niveles: Nacional, Provincial (Buenos Aires), Municipal (Quilmes).
+// Ventana: 7 días.
+// Generación: 2 llamadas a Gemini en paralelo, después se concatenan.
+
+interface AreaConfig {
+  emoji: string;
+  nombre: string;
+  descripcion: string;
+  // Keywords que cuentan como pertenecientes a esta área. Lowercase, sin tildes para
+  // que el match sea más laxo. Una sola coincidencia en título o resumen alcanza.
+  keywords: string[];
+  // Keywords que descalifican un artículo aunque tenga match positivo (override)
+  excludeKeywords?: string[];
+}
+
+const AREAS: AreaConfig[] = [
+  {
+    emoji: '🎭',
+    nombre: 'CULTURA',
+    descripcion: 'política cultural, financiamiento, instituciones, festivales, espacios culturales, industrias culturales, libros, cine, música, teatro, patrimonio',
+    keywords: [
+      'cultura', 'cultural', 'cine', 'pelicula', 'película', 'cineasta', 'director',
+      'libro', 'autora', 'autor', 'literatura', 'editorial', 'feria del libro',
+      'musica', 'música', 'concierto', 'recital', 'banda', 'cantante', 'álbum',
+      'teatro', 'obra', 'actor', 'actriz', 'estreno', 'guion',
+      'museo', 'patrimonio', 'arte', 'artista', 'pintor', 'exposición', 'muestra',
+      'centro cultural', 'biblioteca', 'incaa', 'mecenazgo', 'cultura pública',
+      'festival', 'audiovisual', 'streaming', 'documental',
+    ],
+  },
+  {
+    emoji: '📚',
+    nombre: 'EDUCACIÓN',
+    descripcion: 'educación pública, presupuesto, paritarias docentes, universidades, escuelas, infancias, conflictos gremiales del sector, leyes educativas',
+    keywords: [
+      'educación', 'educacion', 'educativ', 'docente', 'maestra', 'maestro', 'profesor',
+      'escuela', 'colegio', 'aula', 'jardín', 'jardin', 'inicial', 'primaria', 'secundaria',
+      'universidad', 'universitar', 'estudiante', 'alumno', 'alumna',
+      'paritaria docente', 'gremio docente', 'sutech', 'suteba', 'ctera', 'udocba',
+      'becas progresar', 'progresar', 'beca', 'fonid',
+      'incentivo docente', 'capital humano', 'ministerio de educación', 'pelta',
+      'sae', 'comedor escolar', 'libros escolares', 'útiles', 'cuadernos',
+      'evaluación aprender', 'censo educativo', 'analfabetismo',
+    ],
+  },
+  {
+    emoji: '🏥',
+    nombre: 'SALUD',
+    descripcion: 'salud pública, hospitales, presupuesto, conflictos del sector, vacunas, salud mental, salud sexual, ANMAT, PAMI, obras sociales, medicamentos',
+    keywords: [
+      // Salud pública / sistema sanitario (frases completas)
+      'salud publica', 'salud pública', 'sistema de salud', 'sistema sanitario',
+      'ministerio de salud', 'secretaria de salud', 'secretaría de salud',
+      'politica sanitaria', 'política sanitaria', 'politica de salud', 'política de salud',
+      'presupuesto en salud', 'presupuesto sanitario',
+      'efectores de salud', 'centros de salud', 'centro de salud',
+      // Hospitales e instituciones
+      'hospital ', 'hospitales', 'hospitalari', 'clínica médica', 'clinica medica',
+      'caps ', 'sala de salud', 'salas de salud',
+      'guardia médica', 'guardia medica', 'guardia hospitalaria',
+      'unidad sanitaria', 'unidades sanitarias',
+      // Trabajadores del sector
+      'profesionales de la salud', 'trabajadores de la salud',
+      'personal de salud', 'personal sanitario', 'agentes sanitarios',
+      'colegio de médicos', 'colegio medico',
+      'caja de jubilaciones médicas', 'caja medica',
+      // Medicamentos y reguladores
+      'medicamento', 'medicamentos', 'remedios', 'farmacia',
+      'anmat', 'fda', 'vacuna', 'vacunación', 'vacunacion', 
+      'inmunización', 'inmunizacion', 'campaña de vacunación', 'campaña de vacunacion',
+      // Coberturas
+      'pami', 'obras sociales', 'obra social', 'prepaga', 'prepagas',
+      'iosfa', 'ioma', 'osecac', 'osde', 'swiss medical', 'galeno', 'medife',
+      // Profesionales y trabajadores
+      'paciente', 'pacientes', 'médico', 'medica', 'médica', 'doctor', 'doctora',
+      'enfermería', 'enfermeria', 'enfermera', 'enfermero', 
+      'kinesiología', 'kinesiologia',
+      'residencias médicas', 'residencias medicas',
+      // Salud mental / sexual
+      'salud mental', 'suicidio', 'depresión clínica', 'depresion clinica',
+      'el borda', 'hospital borda',
+      'salud sexual', 'derechos sexuales y reproductivos',
+      'aborto legal', 'ile ', 'ive ', 
+      'interrupción voluntaria del embarazo', 'interrupcion voluntaria del embarazo',
+      // Enfermedades / epidemias
+      'sarampión', 'sarampion', 'dengue', 'covid', 'sars-cov',
+      'gripe a', 'gripe estacional',
+      'epidem', 'pandem', 'brote epidemiologico', 'brote epidemiológico',
+      'foco infeccioso',
+      // Conflictos del sector
+      'paritaria de salud', 'paro de salud', 'conflicto sanitario',
+      'recorte en salud', 'desfinanciamiento salud', 'desfinanciamiento sanitario',
+    ],
+    excludeKeywords: [
+      // Evitar matchear "salud y bienestar" en contextos económicos/de consumo
+      'salud financiera', 'salud económica', 'salud economica',
+      'salud del consumidor', 'salud crediticia',
+    ],
+  },
+  {
+    emoji: '♀️',
+    nombre: 'GÉNERO',
+    descripcion: 'políticas de género, violencia de género, femicidios/travesticidios, leyes de género, derechos LGBTIQ+, aborto, cuidados, maternidad, brecha salarial, paridad',
+    keywords: [
+      // Violencia y crímenes específicos del campo
+      'violencia de género', 'violencia machista', 'violencia patriarcal',
+      'femicidio', 'femicidios', 'travesticidio', 'travesticidios',
+      'transfemicidio', 'lesbicidio',
+      'desaparecida', 'búsqueda activa', 'alerta sofia', 'alerta sofía',
+      'abuso sexual', 'violación', 'violacion',
+      // Movimiento y política
+      'feminismo', 'feminista', 'feministas', 'movimiento de mujeres',
+      'movimiento feminista',
+      'ni una menos', 'paro de mujeres', '8m', '3j',
+      // LGBTIQ+
+      'lgbt', 'lgbtiq', 'lgbtq', 'comunidad lgbt',
+      'identidad de género', 'identidad de genero', 'cupo trans',
+      'cupo laboral travesti', 'cupo laboral trans',
+      'matrimonio igualitario', 'ley de identidad de género',
+      'colectivo travesti', 'colectivo trans',
+      'orgullo lgbt', 'marcha del orgullo',
+      // Derechos sexuales y reproductivos
+      'aborto legal', 'ile ', 'ive ',
+      'interrupción voluntaria del embarazo', 'interrupcion voluntaria del embarazo',
+      'derechos sexuales y reproductivos',
+      'salud sexual y reproductiva', 'objeción de conciencia',
+      // Cuidados / brecha
+      'tareas de cuidado', 'economía del cuidado', 'economia del cuidado',
+      'brecha salarial', 'brecha de género', 'brecha de genero',
+      'paridad de género', 'paridad de genero', 'ley de paridad',
+      'salario para amas de casa', 'reconocimiento de cuidados',
+      // ESI
+      'educación sexual integral', 'educacion sexual integral', 'esi ',
+      // Política específica de género
+      'ministerio de mujeres', 'ministerio de las mujeres',
+      'secretaria de la mujer', 'secretaría de la mujer',
+      'política de género', 'políticas de género', 'politica de genero',
+      // Específicos
+      'travesti', 'trans ', 'no binarie', 'no binaria', 'no binario',
+      'lesbiana', 'lesbianas', 'gay', 'gays', 'bisexual', 'bisexuales',
+    ],
+    excludeKeywords: [
+      // Evitar usos genéricos del término "mujer" en contextos económicos / políticos
+      // que ya tendrían su propia área. Ej: "mujeres y diversidades golpeadas por la inflación"
+      // entra como Brigadas o como tema económico, no como Género.
+      'inflación mensual', 'inflacion mensual', 'tipo de cambio',
+      'reservas bcra', 'dólar blue', 'dolar blue',
+    ],
+  },
+  {
+    emoji: '🤝',
+    nombre: 'BRIGADAS SOLIDARIAS',
+    descripcion: 'personas en situación de calle, barrios populares y villas, economía popular, organizaciones territoriales, comedores y merenderos',
+    keywords: [
+      // Situación de calle
+      'situación de calle', 'situacion de calle', 'sin techo', 'personas sin techo',
+      'paradores', 'parador municipal', 'parador nocturno',
+      // Barrios populares
+      'barrio popular', 'barrios populares', 'villas y asentamientos',
+      'asentamiento informal', 'asentamientos populares', 'tomas de tierra',
+      'reurbanización', 'reurbanizacion', 'renabap',
+      'integración urbana', 'integracion urbana',
+      // Economía popular
+      'economía popular', 'economia popular', 'salario social complementario',
+      'mte ', 'utep ', 'cooperativa de trabajo', 'cooperativismo',
+      'cartonero', 'cartoneros', 'recuperadores urbanos',
+      'vendedor ambulante', 'vendedores ambulantes', 'manteros',
+      'feriante', 'feriantes', 'feria popular',
+      'changarines', 'changas',
+      // Comedores
+      'comedor comunitario', 'comedores comunitarios', 'comedor escolar',
+      'merendero', 'merenderos', 'olla popular', 'ollas populares',
+      'copa de leche',
+      // Asistencia
+      'asistencia alimentaria', 'tarjeta alimentar', 'plan alimentar',
+      'caja de alimentos', 'cajas de alimentos', 'modulo alimentario',
+      'módulo alimentario', 'bolsón alimentario', 'bolson alimentario',
+      'mesa-mas vida', 'mas vida', 'plan más vida', 'plan mas vida',
+      'vianda escolar', 'sae escolar',
+      // Habitacional / frío
+      'emergencia habitacional', 'desalojo violento', 'desalojos',
+      'operativo frio', 'operativo frío', 'campaña de invierno',
+      // Programas sociales
+      'asignación universal por hijo', 'asignacion universal por hijo',
+      'plan social', 'planes sociales', 'potenciar trabajo', 'progresar',
+      'pension no contributiva', 'pensión no contributiva',
+      // Movimientos / organizaciones territoriales
+      'movimiento popular', 'movimientos sociales',
+      'organización territorial', 'organizacion territorial',
+      'organizaciones sociales', 'organizaciones territoriales',
+      'frente patria grande', 'frente de organizaciones',
+      'barrios de pie', 'somos barrios de pie',
+      'movimiento evita', 'corriente clasista combativa',
+      'ctep ', 'la dignidad', 'movimiento popular la dignidad',
+      'grabois',
+      // Pobreza
+      'pobreza estructural', 'pobreza por ingresos', 'indec pobreza',
+      'hambre', 'desnutrición', 'desnutricion',
+      'inseguridad alimentaria',
+    ],
+    excludeKeywords: [
+      // Evitar economía macro genérica
+      'tipo de cambio', 'dólar blue', 'dolar blue', 'reservas bcra',
+      'inflación mensual', 'inflacion mensual', 'imae', 'pbi ',
+      // Evitar declaraciones eclesiásticas amplias
+      'conferencia episcopal', 'episcopal argentina', 'cardenal', 'obispo',
+      // Evitar política partidaria sin vínculo territorial
+      'interna pj', 'interna del pj',
+      // Evitar bienestar animal y limpieza/medio ambiente que no son del área
+      'bienestar animal', 'maltrato animal', 'caballos',
+      'arrojaban basura', 'arrojan basura', 'basura clandestina',
+    ],
+  },
+];
+
+// Quita tildes para hacer el match laxo
+function normalize(s: string): string {
+  return (s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function articleMatchesArea(article: any, area: AreaConfig): boolean {
+  const haystack = normalize(`${article.title} ${article.summary || ''}`);
+  const inc = area.keywords.some(kw => haystack.includes(normalize(kw)));
+  if (!inc) return false;
+  if (area.excludeKeywords && area.excludeKeywords.length > 0) {
+    const excl = area.excludeKeywords.some(kw => haystack.includes(normalize(kw)));
+    if (excl) return false;
+  }
+  return true;
+}
+
+// Niveles geográficos
+type GeoLevel = 'national' | 'provincial' | 'municipal';
+
+// Listas de medios por nivel geográfico
+const NATIONAL_MEDIA = [
+  'clarin', 'la nacion', 'infobae', 'ambito', 'pagina|12', 'pagina/12', 'pagina 12',
+  'el destape', 'el cohete a la luna', 'tiempo argentino', 'cenital', 'panama revista',
+  'el grito del sur', 'el diario ar', 'cgtn', 'reuters', 'bbc mundo',
+  'revista anfibia', 'revista crisis', 'letra p', 'diagonales', 'perspectiva sur',
+  'le monde diplomatique', 'econojournal', 'va con firma', 'kranear', 'cepa', 'mate',
+];
+
+const QUILMES_MARKERS = [
+  // Centros y zonas principales del partido de Quilmes
+  'quilmes', 'quilmes oeste', 'quilmes centro', 'quilmes este',
+  'don bosco', 'bernal', 'bernal oeste', 'bernal este',
+  'ezpeleta', 'ezpeleta oeste', 'ezpeleta este',
+  'san francisco solano', 'solano',
+  // Barrios de Quilmes
+  'villa la florida', 'villa itati', 'villa itatí',
+  'villa lujan', 'villa luján',
+  'la matera', 'la cañada', 'la canada', 'la ribera',
+  'iapi', 'el monte', 'monte chingolo quilmes',
+  // Marcas e instituciones quilmeñas
+  'isidoro iriarte', 'hospital iriarte', 'hospital de quilmes',
+  'mayra mendoza', 'cervecería quilmes', 'cerveceria quilmes',
+  'club atletico quilmes', 'club atlético quilmes',
+];
+
+// Otros distritos del sur GBA que NO son Quilmes (para excluir)
+const NOT_QUILMES_DISTRICTS = [
+  'avellaneda', 'lanus', 'lanús', 'lomas de zamora', 'almirante brown', 'berazategui',
+  'florencio varela', 'esteban echeverria', 'ezeiza', 'la plata', 'berisso', 'ensenada',
+];
+
+function detectGeoLevel(article: any): GeoLevel | 'unknown' {
+  const title = normalize(article.title || '');
+  const summary = normalize(article.summary || '');
+  const haystack = `${title} ${summary}`;
+  const sourceName = normalize(article.media_sources?.name || '');
+
+  // Contar menciones de Quilmes y de otros distritos para calidad de match
+  const countMatches = (text: string, terms: string[]): number =>
+    terms.reduce((acc, t) => acc + (text.split(normalize(t)).length - 1), 0);
+
+  const quilmesHitsTitle = countMatches(title, QUILMES_MARKERS);
+  const quilmesHitsTotal = countMatches(haystack, QUILMES_MARKERS);
+  const otherDistrictHits = countMatches(haystack, NOT_QUILMES_DISTRICTS);
+
+  // 1. Municipal STRICT: Quilmes está en el TÍTULO y NO hay menciones de otros distritos.
+  // Esto evita que una nota "Violencia escolar en Lanús; en Quilmes también pasa"
+  // se cuele como municipal de Quilmes.
+  if (quilmesHitsTitle >= 1 && otherDistrictHits === 0) return 'municipal';
+
+  // 2. Municipal por fuente: InfoQuilmes Y mención de Quilmes en cualquier parte
+  // Y sin mencionar otros distritos (porque InfoQuilmes a veces cubre la región).
+  if (sourceName.includes('infoquilmes') && quilmesHitsTotal >= 1 && otherDistrictHits === 0) {
+    return 'municipal';
+  }
+
+  // 3. Provincial: menciones de la provincia/Kicillof/La Plata, sin Quilmes
+  if (
+    /provincia de buenos aires|kicillof|la plata|conurbano bonaerense|provincia bonaerense|gobierno bonaerense|legislatura bonaerense|gobernacion bonaerense|gobernación bonaerense/.test(haystack)
+    && quilmesHitsTotal === 0
+  ) return 'provincial';
+
+  // 4. Si la fuente local (Inforegión / InfoQuilmes) menciona OTROS distritos sin Quilmes,
+  // marcamos provincial (regional pero NO Quilmes).
+  if (
+    (sourceName.includes('inforegion') || sourceName.includes('infoquilmes'))
+    && otherDistrictHits >= 1
+    && quilmesHitsTitle === 0
+  ) return 'provincial';
+
+  // 5. Nacional: medios nacionales SIN mención específica regional, contenido sobre Argentina.
+  // Importante: NO devolver 'national' por default — si la nota es claramente sobre otro país,
+  // tiene que terminar como 'unknown'. Buscamos señales positivas de Argentina.
+  const isNationalMedia = NATIONAL_MEDIA.some(m => sourceName.includes(m));
+  const mentionsArgentina = /\bargentina\b|\bargentino\b|\bargentina\b|gobierno nacional|congreso de la nacion|senado de la nacion|camara de diputados|presidencia de la nacion|milei|cristina kirchner/.test(haystack);
+  // Señales de que la nota es de OTRO país (no entra como nacional argentino)
+  const looksForeign = /pakistan|paquistan|india|china|brasil|uruguay|chile|peru|venezuela|colombia|mexico|estados unidos|eeuu|francia|alemania|italia|espana|reino unido|trump|biden|lula|petro|maduro|boric|bolsonaro/.test(haystack);
+
+  if (isNationalMedia && mentionsArgentina && !looksForeign) return 'national';
+  if (mentionsArgentina && !looksForeign) return 'national';
+
+  return 'unknown';
+}
+
+interface CandidateArticle {
+  title: string;
+  summary: string;
+  url_short: string;
+  source: string;
+  scraped_at: string;
+}
+
+function pickCandidates(
+  articles: any[],
+  area: AreaConfig,
+  level: GeoLevel,
+  max: number
+): CandidateArticle[] {
+  const matches = articles.filter((a: any) => {
+    return articleMatchesArea(a, area) && detectGeoLevel(a) === level;
+  });
+
+  // Ordenar por más reciente primero, luego dedup por título normalizado para evitar
+  // que el mismo evento aparezca 5 veces desde 5 medios distintos
+  const seen = new Set<string>();
+  const dedup: any[] = [];
+  for (const a of matches) {
+    const key = normalize(a.title || '').substring(0, 80);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    dedup.push(a);
+    if (dedup.length >= max) break;
+  }
+
+  return dedup.map((a: any) => ({
+    title: a.title || '',
+    summary: (a.summary || '').substring(0, 250),
+    url_short: a.url_short || '',
+    source: a.media_sources?.name || '?',
+    scraped_at: a.scraped_at,
+  }));
+}
+
+function buildWeeklyUserPrompt(
+  candidatesByAreaLevel: Record<string, CandidateArticle[]>,
+  dateLong: string,
+  dateShort: string
+): string {
+  let prompt = `Generá el boletín semanal con las 5 áreas de trabajo de Patria Grande Quilmes.
+
+REGLAS ABSOLUTAS:
+1. Para cada celda área × nivel, elegí UNA nota de los CANDIDATOS que te paso abajo. NO inventes notas que no estén en la lista.
+2. Tu descripción debe ser FIEL al título y resumen del candidato elegido. NO inventes detalles, instituciones, programas o fechas que no estén explícitos.
+3. Usá el url_short EXACTO del candidato elegido. NO modifiques el link.
+4. Si una celda tiene 0 candidatos, OMITÍ esa fila (regla de combinación abajo).
+5. Si una celda tiene candidatos pero ninguno es realmente sobre el área, OMITÍ esa fila igualmente.
+6. Si Provincial está vacío O Municipal está vacío, combiná ambos en "🏛️📍 *Provincial/Municipal:*" usando el que sí tenga material.
+7. Si AMBOS (Provincial y Municipal) están vacíos, dejá solo la fila Nacional para esa área.
+
+ESTRUCTURA EXACTA del boletín que tenés que generar:
+
+🗞️ *PATRIA GRANDE — Resumen Semanal*
+📅 ${dateLong}
+
+━━━━━━━━━━━━━━━━━
+🔗 LA SEMANA EN PATRIA GRANDE
+━━━━━━━━━━━━━━━━━
+[2-3 oraciones cortas y concretas: qué fue lo más relevante de la semana mirando el conjunto. Lenguaje militante pero no exagerado. NO inventes acciones ni hechos. NO digas que "Patria Grande hizo X" si no aparece en los candidatos.]
+
+`;
+
+  for (const area of AREAS) {
+    prompt += `━━━━━━━━━━━━━━━━━\n${area.emoji} *${area.nombre}*\n━━━━━━━━━━━━━━━━━\n`;
+
+    const candNat = candidatesByAreaLevel[`${area.nombre}__national`] || [];
+    const candProv = candidatesByAreaLevel[`${area.nombre}__provincial`] || [];
+    const candMun = candidatesByAreaLevel[`${area.nombre}__municipal`] || [];
+
+    prompt += `\n[Candidatos disponibles para ${area.nombre}]\n`;
+    prompt += `\nNacional (${candNat.length}):\n`;
+    if (candNat.length === 0) prompt += '  (vacío — omití la fila Nacional)\n';
+    else candNat.forEach((c, i) => {
+      prompt += `  ${i + 1}. "${c.title}" | ${c.source} | ${c.url_short}\n     ${c.summary}\n`;
+    });
+
+    prompt += `\nProvincial (${candProv.length}):\n`;
+    if (candProv.length === 0) prompt += '  (vacío)\n';
+    else candProv.forEach((c, i) => {
+      prompt += `  ${i + 1}. "${c.title}" | ${c.source} | ${c.url_short}\n     ${c.summary}\n`;
+    });
+
+    prompt += `\nMunicipal Quilmes (${candMun.length}):\n`;
+    if (candMun.length === 0) prompt += '  (vacío)\n';
+    else candMun.forEach((c, i) => {
+      prompt += `  ${i + 1}. "${c.title}" | ${c.source} | ${c.url_short}\n     ${c.summary}\n`;
+    });
+
+    prompt += `\nGenerá ahora la sección ${area.emoji} *${area.nombre}* siguiendo las reglas. Si no hay candidatos para algún nivel, omití esa fila.\n\n`;
+  }
+
+  prompt += `\n━━━━━━━━━━━━━━━━━\n✌️🇦🇷 *Patria Grande* | Semanal — ${dateShort}\n\nGenerá ahora el boletín completo.`;
+
+  return prompt;
+}
+
+function buildWeeklySystemPrompt(): string {
+  return `Sos el editor del boletín semanal de Patria Grande Quilmes, una organización peronista y popular argentina.
+
+Tu tarea ESTRICTA: a partir de los CANDIDATOS pre-seleccionados que te pasa el usuario, armás un boletín fiel a esos candidatos. NO inventás noticias. NO inventás detalles que no estén explícitos en el título o resumen del candidato.
+
+REGLAS ABSOLUTAS:
+1. Solo usar notas que aparezcan en la lista de candidatos del usuario.
+2. La descripción que escribís debe basarse EXCLUSIVAMENTE en el título y resumen del candidato. Si el candidato dice "El gobierno anunció X", escribí sobre X — no inventes detalles, programas o instituciones que no estén ahí.
+3. Usar el url_short EXACTO del candidato. NO modificar.
+4. 2 oraciones máximo por nota.
+5. Lenguaje militante peronista pero NO sobreexagerado: que se note el posicionamiento sin caer en consigna vacía. Tono concreto, claro, sobrio.
+6. Perspectiva de género NATURAL: en el área de Género va de fondo; en otras áreas, solo si el tema lo amerita realmente.
+7. Puntuación castellana correcta: ¡! y ¿? donde corresponda.
+8. Si una celda tiene 0 candidatos válidos, OMITÍ esa fila completa.
+9. NUNCA inventes que "Patria Grande hizo X" o "las brigadas de Patria Grande Quilmes hicieron Y" si eso no aparece literalmente en los candidatos.
+10. ANTI-DUPLICACIÓN: cada URL aparece UNA SOLA VEZ en todo el boletín. Si una nota ya la usaste en (área A, nivel X), NO la vuelvas a usar en otra celda. Si querés usarla, elegí la celda más apropiada y omitila de la otra. Recorré las celdas en orden y llevá una memoria mental de qué URLs ya usaste.
+11. FIDELIDAD GEOGRÁFICA: una nota va a la fila "Municipal" SOLO si el contenido refiere a hechos en Quilmes (no solo si menciona "Quilmes" en pasada). Si una nota es de Pakistán, no la uses como nacional argentino. Si una nota es de "violencia escolar en Lanús", no la uses en municipal de Quilmes aunque el medio sea de la zona.
+
+REGLA DE COMBINACIÓN PROVINCIAL/MUNICIPAL:
+Si Provincial está vacío Y Municipal NO: usá la fila "🏛️📍 *Provincial/Municipal:*" con el material municipal.
+Si Municipal está vacío Y Provincial NO: usá la fila "🏛️📍 *Provincial/Municipal:*" con el material provincial.
+Si ambos están vacíos: omití ambas filas.
+
+REGLA DE PANORAMA INICIAL:
+El "PANORAMA DE LA SEMANA" debe ser CORTO (2-3 oraciones), CONCRETO y NO EXAGERADO. NO inventar acciones de Patria Grande. Solo conectar los temas de los candidatos elegidos.`;
+}
+
+async function handleWeeklyDigest(
+  supabase: any,
+  GEMINI_API_KEY: string,
+  scheduleName: string
+): Promise<Response> {
+  const corsHdrs = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Content-Type': 'application/json',
+  };
+
+  try {
+    return await runWeeklyDigest(supabase, GEMINI_API_KEY, scheduleName, corsHdrs);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const stack = e instanceof Error ? e.stack : undefined;
+    console.error('[weekly] Crash:', msg);
+    if (stack) console.error('[weekly] Stack:', stack);
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: msg,
+        step: 'weekly_handler',
+        stack: stack ? stack.substring(0, 500) : undefined,
+      }),
+      { status: 500, headers: corsHdrs }
+    );
+  }
+}
+
+async function runWeeklyDigest(
+  supabase: any,
+  GEMINI_API_KEY: string,
+  scheduleName: string,
+  corsHdrs: Record<string, string>
+): Promise<Response> {
+  // Ventana de 7 días
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const { data: articles, error: artErr } = await supabase
+    .from('scraped_articles')
+    .select('*, media_sources(name, category, language)')
+    .gte('scraped_at', since)
+    .order('scraped_at', { ascending: false })
+    .limit(800);
+
+  if (artErr) throw artErr;
+  if (!articles || articles.length === 0) {
+    return new Response(
+      JSON.stringify({ success: true, message: 'Sin artículos en los últimos 7 días' }),
+      { headers: corsHdrs }
+    );
+  }
+
+  // Filtro de páginas de sección/agenda
+  const isLikelySectionPage = (a: any): boolean => {
+    const url = (a.url || '').toLowerCase();
+    const title = (a.title || '').toLowerCase().trim();
+    if (/\/(category|categoria|categorias|seccion|secciones|sección|tag|tags|agenda|todos|todas|archivo|archivos)\b/.test(url)) return true;
+    const pathSegments = url.replace(/^https?:\/\/[^/]+/, '').split('/').filter(Boolean);
+    if (pathSegments.length <= 1) return true;
+    const genericTitles = [
+      /^(cultura|educaci[oó]n|salud|g[eé]nero|pol[ií]tica|deportes|sociedad|econom[ií]a)\s*[-|–—]/i,
+      /archivos?$/i,
+      /^agenda\b/i,
+      /\bsecci[oó]n\b/i,
+      /\bcategor[ií]a\b/i,
+      /^novedades$/i,
+    ];
+    if (genericTitles.some(re => re.test(title))) return true;
+    if (title.length < 25) return true;
+    return false;
+  };
+
+  const articlesFiltered = articles.filter((a: any) => !isLikelySectionPage(a));
+  console.log(`[weekly] Artículos filtrados (sección): ${articles.length - articlesFiltered.length}, restantes: ${articlesFiltered.length}`);
+
+  if (articlesFiltered.length === 0) {
+    return new Response(
+      JSON.stringify({ success: true, message: 'Tras filtrar, no quedaron artículos válidos' }),
+      { headers: corsHdrs }
+    );
+  }
+
+  // Acortar URLs (solo de los que pasan el filtro inicial)
+  const allUrls = articlesFiltered.map((a: any) => a.url).filter(Boolean);
+  const shortUrlMap = await shortenAll(allUrls);
+  const withShort = articlesFiltered.map((a: any) => ({
+    ...a,
+    url_short: shortUrlMap.get(a.url) || a.url,
+  }));
+
+  // ── Pre-clasificar candidatos por área × nivel ──────────────────────────────
+  const candidatesByAreaLevel: Record<string, CandidateArticle[]> = {};
+  const candidateStats: Record<string, number> = {};
+
+  for (const area of AREAS) {
+    for (const level of ['national', 'provincial', 'municipal'] as GeoLevel[]) {
+      const cands = pickCandidates(withShort, area, level, 8); // 8 candidatos brutos por celda
+      const key = `${area.nombre}__${level}`;
+      candidatesByAreaLevel[key] = cands;
+    }
+  }
+
+  // ── Dedup global entre celdas ───────────────────────────────────────────────
+  // Si una URL aparece como candidato en múltiples celdas, la dejamos SOLO en la
+  // primera celda que la contenga (orden definido por AREAS × niveles).
+  // Esto evita que Gemini meta la misma nota en dos secciones distintas.
+  // Después del dedup, recortamos cada celda a 5 candidatos.
+  const seenUrls = new Set<string>();
+  for (const area of AREAS) {
+    for (const level of ['national', 'provincial', 'municipal'] as GeoLevel[]) {
+      const key = `${area.nombre}__${level}`;
+      const original = candidatesByAreaLevel[key] || [];
+      const filtered: CandidateArticle[] = [];
+      for (const cand of original) {
+        if (cand.url_short && seenUrls.has(cand.url_short)) continue; // ya usada en otra celda
+        if (cand.url_short) seenUrls.add(cand.url_short);
+        filtered.push(cand);
+        if (filtered.length >= 5) break; // máximo 5 por celda después del dedup
+      }
+      candidatesByAreaLevel[key] = filtered;
+      candidateStats[key] = filtered.length;
+    }
+  }
+
+  console.log(`[weekly] Candidatos pre-seleccionados (post-dedup):`, candidateStats);
+
+  // Verificar que al menos haya algo para generar
+  const totalCandidates = Object.values(candidateStats).reduce((a, b) => a + b, 0);
+  if (totalCandidates === 0) {
+    return new Response(
+      JSON.stringify({
+        success: true,
+        message: 'No hay candidatos en ninguna área/nivel. Revisar keywords o ampliar fuentes.',
+      }),
+      { headers: corsHdrs }
+    );
+  }
+
+  // Fecha
+  const nowAR = new Date(Date.now() - 3 * 60 * 60 * 1000);
+  const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+  const monthNames = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  const dateLong = `${dayNames[nowAR.getUTCDay()]} ${nowAR.getUTCDate()} de ${monthNames[nowAR.getUTCMonth()]} de ${nowAR.getUTCFullYear()}`;
+  const dateShort = `${String(nowAR.getUTCDate()).padStart(2, '0')}/${String(nowAR.getUTCMonth() + 1).padStart(2, '0')}`;
+
+  const systemPrompt = buildWeeklySystemPrompt();
+  const userPrompt = buildWeeklyUserPrompt(candidatesByAreaLevel, dateLong, dateShort);
+
+  console.log(`[${scheduleName}] Generando boletín semanal con ${totalCandidates} candidatos pre-seleccionados`);
+
+  const r1 = await callGemini(GEMINI_API_KEY, systemPrompt, userPrompt, 12000);
+  let fullMessage = r1.text.trim();
+
+  console.log(`[${scheduleName}] Modelo usado: ${r1.modelUsed}`);
+  console.log(`[${scheduleName}] Longitud final: ${fullMessage.length} chars`);
+
+  // ── Validación post-Gemini ──────────────────────────────────────────────────
+  // 1) URLs que aparecen pero que NO están en los candidatos → invención
+  // 2) URLs que aparecen MÁS DE UNA VEZ → duplicación entre secciones
+  const validUrls = new Set<string>();
+  for (const cands of Object.values(candidatesByAreaLevel)) {
+    for (const c of cands) if (c.url_short) validUrls.add(c.url_short);
+  }
+
+  const urlPattern = /https?:\/\/[^\s)]+/g;
+  const foundUrls = fullMessage.match(urlPattern) || [];
+  const inventedUrls = foundUrls.filter(u => !validUrls.has(u));
+  const urlCounts = new Map<string, number>();
+  for (const u of foundUrls) urlCounts.set(u, (urlCounts.get(u) || 0) + 1);
+  const duplicateUrls = [...urlCounts.entries()].filter(([_, c]) => c > 1).map(([u]) => u);
+
+  if (inventedUrls.length > 0) {
+    console.warn(`[weekly] URLs INVENTADAS detectadas (${inventedUrls.length}):`, inventedUrls.slice(0, 5));
+  }
+  if (duplicateUrls.length > 0) {
+    console.warn(`[weekly] URLs DUPLICADAS detectadas (${duplicateUrls.length}):`, duplicateUrls.slice(0, 5));
+  }
+
+  if (inventedUrls.length > 0 || duplicateUrls.length > 0) {
+    const issues: string[] = [];
+    if (inventedUrls.length > 0) issues.push(`${inventedUrls.length} link(s) inventado(s) por la IA`);
+    if (duplicateUrls.length > 0) issues.push(`${duplicateUrls.length} link(s) duplicado(s) entre secciones`);
+    fullMessage += `\n\n⚠️ *Aviso de calidad*: ${issues.join(' y ')} — revisar antes de reenviar a WhatsApp.`;
+  }
+  // ────────────────────────────────────────────────────────────────────────────
+
+  // Notas de aprendizaje (cortas)
+  let learningNotes = '';
+  try {
+    const learningPrompt = `Analizás brevemente este boletín semanal recién generado:\n${fullMessage.substring(0, 1500)}\n\nGenerá 3 notas de aprendizaje sobre qué se podría mejorar (formato lista, 200 palabras máximo).`;
+    const { text } = await callGemini(GEMINI_API_KEY, 'Sos un editor crítico. Castellano rioplatense.', learningPrompt, 800);
+    learningNotes = text;
+  } catch {
+    learningNotes = 'Sin notas de aprendizaje en este ciclo.';
+  }
+
+  // Guardar en DB
+  const { data: digest, error: digestErr } = await supabase
+    .from('digest_sends')
+    .insert({
+      telegram_message: fullMessage,
+      articles_count: articlesFiltered.length,
+      status: 'pending',
+      digest_type: 'weekly',
+      learning_notes: learningNotes,
+    })
+    .select()
+    .single();
+
+  if (digestErr) throw digestErr;
+
+  return new Response(
+    JSON.stringify({
+      success: true,
+      digest_id: digest.id,
+      digest_type: 'weekly',
+      articles_count: articlesFiltered.length,
+      candidates_count: totalCandidates,
+      candidates_by_cell: candidateStats,
+      message_length: fullMessage.length,
+      models_used: [r1.modelUsed],
+    }),
+    { headers: corsHdrs }
+  );
+}
