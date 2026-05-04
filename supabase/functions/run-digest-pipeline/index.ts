@@ -8,12 +8,13 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const SCHEDULE_CONFIG: Record<string, { digestType: 'personal' | 'group' | 'weekly'; label: string }> = {
-  'Resumen 07:00':   { digestType: 'personal', label: '07:00' },
-  'Resumen 13:00':   { digestType: 'personal', label: '13:00' },
-  'Boletín 20:00':   { digestType: 'group',    label: '20:00' },
-  'Semanal Sábado':  { digestType: 'weekly',   label: 'Semanal' },
-  'Manual':          { digestType: 'group',    label: 'Manual' },
+const SCHEDULE_CONFIG: Record<string, { digestType: 'personal' | 'group' | 'weekly' | 'monday_realidad'; label: string }> = {
+  'Resumen 07:00':   { digestType: 'personal',         label: '07:00' },
+  'Resumen 13:00':   { digestType: 'personal',         label: '13:00' },
+  'Boletín 20:00':   { digestType: 'group',            label: '20:00' },
+  'Semanal Sábado':  { digestType: 'weekly',           label: 'Semanal' },
+  'Lunes Realidad':  { digestType: 'monday_realidad',  label: 'Lunes 20' },
+  'Manual':          { digestType: 'group',            label: 'Manual' },
 };
 
 Deno.serve(async (req) => {
