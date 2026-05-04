@@ -12,8 +12,8 @@ const SCHEDULE_CONFIG: Record<string, { digestType: 'personal' | 'group' | 'week
   'Resumen 07:00':   { digestType: 'personal',         label: '07:00' },
   'Resumen 13:00':   { digestType: 'personal',         label: '13:00' },
   'Boletín 20:00':   { digestType: 'group',            label: '20:00' },
-  'Semanal Sábado':  { digestType: 'weekly',           label: 'Semanal' },
   'Lunes Realidad':  { digestType: 'monday_realidad',  label: 'Lunes 20' },
+  'Martes Áreas':    { digestType: 'weekly',           label: 'Martes 20' },
   'Manual':          { digestType: 'group',            label: 'Manual' },
 };
 
