@@ -682,8 +682,16 @@ const AREAS: AreaConfig[] = [
       'paritaria docente', 'gremio docente', 'sutech', 'suteba', 'ctera', 'udocba',
       'becas progresar', 'progresar', 'beca', 'fonid',
       'incentivo docente', 'capital humano', 'ministerio de educación', 'pelta',
-      'sae', 'comedor escolar', 'libros escolares', 'útiles', 'cuadernos',
+      'sae', 'comedor escolar', 'libros escolares', 'útiles escolares', 'utiles escolares',
       'evaluación aprender', 'censo educativo', 'analfabetismo',
+    ],
+    excludeKeywords: [
+      // Evitar que la "Causa Cuadernos" (caso judicial de corrupción) entre como
+      // educación por mención al término "cuadernos" en otro contexto.
+      'causa cuadernos', 'cuadernos de la corrupción', 'cuadernos de la corrupcion',
+      'cuadernos k', 'cuadernos de centeno',
+      // Evitar análisis políticos generales que solo mencionan educación lateralmente
+      'agonía de', 'agonia de',
     ],
   },
   {
@@ -1249,19 +1257,72 @@ async function runWeeklyDigest(
   console.log(`[${scheduleName}] Longitud final: ${fullMessage.length} chars`);
 
   // ── Validación post-Gemini ──────────────────────────────────────────────────
-  // 1) URLs que aparecen pero que NO están en los candidatos → invención
+  // 1) URLs que aparecen pero NO están en los candidatos → invención
   // 2) URLs que aparecen MÁS DE UNA VEZ → duplicación entre secciones
+  // 3) URLs que están en candidatos pero Gemini las puso en un área DIFERENTE → fuera de área
   const validUrls = new Set<string>();
-  for (const cands of Object.values(candidatesByAreaLevel)) {
-    for (const c of cands) if (c.url_short) validUrls.add(c.url_short);
+  // Mapa url → set de áreas donde la URL es candidato
+  const urlToAreas = new Map<string, Set<string>>();
+  for (const [key, cands] of Object.entries(candidatesByAreaLevel)) {
+    const area = key.split('__')[0]; // 'CULTURA__national' → 'CULTURA'
+    for (const c of cands) {
+      if (c.url_short) {
+        validUrls.add(c.url_short);
+        if (!urlToAreas.has(c.url_short)) urlToAreas.set(c.url_short, new Set());
+        urlToAreas.get(c.url_short)!.add(area);
+      }
+    }
   }
 
   const urlPattern = /https?:\/\/[^\s)]+/g;
-  const foundUrls = fullMessage.match(urlPattern) || [];
+  const foundUrls = (fullMessage.match(urlPattern) || []).map(u => u.replace(/[.,;:!?)]+$/, ''));
   const inventedUrls = foundUrls.filter(u => !validUrls.has(u));
   const urlCounts = new Map<string, number>();
   for (const u of foundUrls) urlCounts.set(u, (urlCounts.get(u) || 0) + 1);
   const duplicateUrls = [...urlCounts.entries()].filter(([_, c]) => c > 1).map(([u]) => u);
+
+  // Detectar URLs fuera de área: parsear el mensaje por bloques de área y verificar
+  // que cada URL esté en una celda compatible con esa área.
+  const outOfAreaUrls: { url: string; expectedAreas: string[]; placedIn: string }[] = [];
+  const areaMarkers: Array<{ name: string; re: RegExp }> = [
+    { name: 'CULTURA', re: /🎭\s*\*?CULTURA\*?/i },
+    { name: 'EDUCACIÓN', re: /📚\s*\*?EDUCACI[ÓO]N\*?/i },
+    { name: 'SALUD', re: /🏥\s*\*?SALUD\*?/i },
+    { name: 'GÉNERO', re: /♀️\s*\*?G[ÉE]NERO\*?/i },
+    { name: 'BRIGADAS SOLIDARIAS', re: /🤝\s*\*?BRIGADAS SOLIDARIAS\*?/i },
+  ];
+
+  // Encontrar offsets de cada sección en orden
+  const sectionStarts: Array<{ name: string; offset: number }> = [];
+  for (const m of areaMarkers) {
+    const match = m.re.exec(fullMessage);
+    if (match) sectionStarts.push({ name: m.name, offset: match.index });
+  }
+  sectionStarts.sort((a, b) => a.offset - b.offset);
+
+  // Para cada URL del mensaje, determinar en qué sección cayó y verificar
+  for (const url of foundUrls) {
+    const expectedAreas = urlToAreas.get(url);
+    if (!expectedAreas) continue; // ya cubierto por inventedUrls
+    // Encontrar la posición de la URL en el mensaje
+    const idx = fullMessage.indexOf(url);
+    if (idx < 0) continue;
+    // ¿En qué sección está?
+    let placedIn = '?';
+    for (let i = sectionStarts.length - 1; i >= 0; i--) {
+      if (idx >= sectionStarts[i].offset) {
+        placedIn = sectionStarts[i].name;
+        break;
+      }
+    }
+    if (placedIn !== '?' && !expectedAreas.has(placedIn)) {
+      outOfAreaUrls.push({
+        url,
+        expectedAreas: [...expectedAreas],
+        placedIn,
+      });
+    }
+  }
 
   if (inventedUrls.length > 0) {
     console.warn(`[weekly] URLs INVENTADAS detectadas (${inventedUrls.length}):`, inventedUrls.slice(0, 5));
@@ -1269,11 +1330,15 @@ async function runWeeklyDigest(
   if (duplicateUrls.length > 0) {
     console.warn(`[weekly] URLs DUPLICADAS detectadas (${duplicateUrls.length}):`, duplicateUrls.slice(0, 5));
   }
+  if (outOfAreaUrls.length > 0) {
+    console.warn(`[weekly] URLs FUERA DE ÁREA detectadas (${outOfAreaUrls.length}):`, outOfAreaUrls.slice(0, 5).map(o => `${o.url} puesto en ${o.placedIn} pero candidato de [${o.expectedAreas.join(',')}]`));
+  }
 
-  if (inventedUrls.length > 0 || duplicateUrls.length > 0) {
+  if (inventedUrls.length > 0 || duplicateUrls.length > 0 || outOfAreaUrls.length > 0) {
     const issues: string[] = [];
     if (inventedUrls.length > 0) issues.push(`${inventedUrls.length} link(s) inventado(s) por la IA`);
     if (duplicateUrls.length > 0) issues.push(`${duplicateUrls.length} link(s) duplicado(s) entre secciones`);
+    if (outOfAreaUrls.length > 0) issues.push(`${outOfAreaUrls.length} link(s) fuera de su área temática`);
     fullMessage += `\n\n⚠️ *Aviso de calidad*: ${issues.join(' y ')} — revisar antes de reenviar a WhatsApp.`;
   }
   // ────────────────────────────────────────────────────────────────────────────
@@ -1313,6 +1378,14 @@ async function runWeeklyDigest(
       candidates_by_cell: candidateStats,
       message_length: fullMessage.length,
       models_used: [r1.modelUsed],
+      invented_detected: inventedUrls.length,
+      duplicates_detected: duplicateUrls.length,
+      out_of_area_detected: outOfAreaUrls.length,
+      out_of_area_examples: outOfAreaUrls.slice(0, 5).map(o => ({
+        url: o.url,
+        placed_in: o.placedIn,
+        candidate_of: o.expectedAreas,
+      })),
     }),
     { headers: corsHdrs }
   );
