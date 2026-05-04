@@ -660,34 +660,48 @@ const AREAS: AreaConfig[] = [
     nombre: 'SALUD',
     descripcion: 'salud pública, hospitales, presupuesto, conflictos del sector, vacunas, salud mental, salud sexual, ANMAT, PAMI, obras sociales, medicamentos',
     keywords: [
-      // Salud pública / sistema sanitario (frases completas, no palabras sueltas)
+      // Salud pública / sistema sanitario (frases completas)
       'salud publica', 'salud pública', 'sistema de salud', 'sistema sanitario',
       'ministerio de salud', 'secretaria de salud', 'secretaría de salud',
       'politica sanitaria', 'política sanitaria', 'politica de salud', 'política de salud',
       'presupuesto en salud', 'presupuesto sanitario',
+      'efectores de salud', 'centros de salud', 'centro de salud',
       // Hospitales e instituciones
       'hospital ', 'hospitales', 'hospitalari', 'clínica médica', 'clinica medica',
-      'centro de salud', 'caps', 'sala de salud', 'guardia médica', 'guardia medica',
+      'caps ', 'sala de salud', 'salas de salud',
+      'guardia médica', 'guardia medica', 'guardia hospitalaria',
+      'unidad sanitaria', 'unidades sanitarias',
+      // Trabajadores del sector
+      'profesionales de la salud', 'trabajadores de la salud',
+      'personal de salud', 'personal sanitario', 'agentes sanitarios',
+      'colegio de médicos', 'colegio medico',
+      'caja de jubilaciones médicas', 'caja medica',
       // Medicamentos y reguladores
       'medicamento', 'medicamentos', 'remedios', 'farmacia',
-      'anmat', 'fda', 'vacuna', 'vacunación', 'vacunacion', 'inmunización', 'inmunizacion',
+      'anmat', 'fda', 'vacuna', 'vacunación', 'vacunacion', 
+      'inmunización', 'inmunizacion', 'campaña de vacunación', 'campaña de vacunacion',
       // Coberturas
       'pami', 'obras sociales', 'obra social', 'prepaga', 'prepagas',
       'iosfa', 'ioma', 'osecac', 'osde', 'swiss medical', 'galeno', 'medife',
       // Profesionales y trabajadores
       'paciente', 'pacientes', 'médico', 'medica', 'médica', 'doctor', 'doctora',
-      'enfermería', 'enfermeria', 'enfermera', 'enfermero', 'kinesiología', 'kinesiologia',
+      'enfermería', 'enfermeria', 'enfermera', 'enfermero', 
+      'kinesiología', 'kinesiologia',
       'residencias médicas', 'residencias medicas',
       // Salud mental / sexual
       'salud mental', 'suicidio', 'depresión clínica', 'depresion clinica',
+      'el borda', 'hospital borda',
       'salud sexual', 'derechos sexuales y reproductivos',
-      'aborto legal', 'ile ', 'ive ', 'interrupcion voluntaria del embarazo',
+      'aborto legal', 'ile ', 'ive ', 
+      'interrupción voluntaria del embarazo', 'interrupcion voluntaria del embarazo',
       // Enfermedades / epidemias
-      'sarampión', 'sarampion', 'dengue', 'covid', 'sars-cov', 'gripe a',
+      'sarampión', 'sarampion', 'dengue', 'covid', 'sars-cov',
+      'gripe a', 'gripe estacional',
       'epidem', 'pandem', 'brote epidemiologico', 'brote epidemiológico',
+      'foco infeccioso',
       // Conflictos del sector
       'paritaria de salud', 'paro de salud', 'conflicto sanitario',
-      'recorte en salud', 'desfinanciamiento salud',
+      'recorte en salud', 'desfinanciamiento salud', 'desfinanciamiento sanitario',
     ],
     excludeKeywords: [
       // Evitar matchear "salud y bienestar" en contextos económicos/de consumo
@@ -708,7 +722,7 @@ const AREAS: AreaConfig[] = [
       'abuso sexual', 'violación', 'violacion',
       // Movimiento y política
       'feminismo', 'feminista', 'feministas', 'movimiento de mujeres',
-      'movimiento feminista', 'mujeres trabajadoras', 'mujeres organizadas',
+      'movimiento feminista',
       'ni una menos', 'paro de mujeres', '8m', '3j',
       // LGBTIQ+
       'lgbt', 'lgbtiq', 'lgbtq', 'comunidad lgbt',
@@ -750,21 +764,21 @@ const AREAS: AreaConfig[] = [
     nombre: 'BRIGADAS SOLIDARIAS',
     descripcion: 'personas en situación de calle, barrios populares y villas, economía popular, organizaciones territoriales, comedores y merenderos',
     keywords: [
-      // Situación de calle (frases específicas)
-      'situación de calle', 'situacion de calle', 'personas sin techo',
-      'gente en situacion de calle', 'gente en situación de calle',
+      // Situación de calle
+      'situación de calle', 'situacion de calle', 'sin techo', 'personas sin techo',
       'paradores', 'parador municipal', 'parador nocturno',
-      // Barrios populares (frases compuestas para evitar match con cualquier "villa")
+      // Barrios populares
       'barrio popular', 'barrios populares', 'villas y asentamientos',
-      'asentamiento informal', 'tomas de tierra', 'reurbanización',
-      'reurbanizacion', 'renabap', 'integración urbana', 'integracion urbana',
+      'asentamiento informal', 'asentamientos populares', 'tomas de tierra',
+      'reurbanización', 'reurbanizacion', 'renabap',
+      'integración urbana', 'integracion urbana',
       // Economía popular
       'economía popular', 'economia popular', 'salario social complementario',
-      'mte ', 'utep ', 'cooperativa de trabajo',
-      'cartoneros', 'recuperadores urbanos',
-      'vendedores ambulantes', 'manteros',
-      'feriantes', 'feria popular',
-      'changas', 'changarines',
+      'mte ', 'utep ', 'cooperativa de trabajo', 'cooperativismo',
+      'cartonero', 'cartoneros', 'recuperadores urbanos',
+      'vendedor ambulante', 'vendedores ambulantes', 'manteros',
+      'feriante', 'feriantes', 'feria popular',
+      'changarines', 'changas',
       // Comedores
       'comedor comunitario', 'comedores comunitarios', 'comedor escolar',
       'merendero', 'merenderos', 'olla popular', 'ollas populares',
@@ -773,16 +787,19 @@ const AREAS: AreaConfig[] = [
       'asistencia alimentaria', 'tarjeta alimentar', 'plan alimentar',
       'caja de alimentos', 'cajas de alimentos', 'modulo alimentario',
       'módulo alimentario', 'bolsón alimentario', 'bolson alimentario',
+      'mesa-mas vida', 'mas vida', 'plan más vida', 'plan mas vida',
+      'vianda escolar', 'sae escolar',
       // Habitacional / frío
       'emergencia habitacional', 'desalojo violento', 'desalojos',
       'operativo frio', 'operativo frío', 'campaña de invierno',
       // Programas sociales
-      'ife ', 'asignación universal por hijo', 'asignacion universal por hijo',
-      'auh ', 'plan social', 'potenciar trabajo', 'progresar',
+      'asignación universal por hijo', 'asignacion universal por hijo',
+      'plan social', 'planes sociales', 'potenciar trabajo', 'progresar',
       'pension no contributiva', 'pensión no contributiva',
       // Movimientos / organizaciones territoriales
-      'movimiento popular', 'organización territorial', 'organizacion territorial',
-      'organizaciones sociales', 'movimientos sociales',
+      'movimiento popular', 'movimientos sociales',
+      'organización territorial', 'organizacion territorial',
+      'organizaciones sociales', 'organizaciones territoriales',
       'frente patria grande', 'frente de organizaciones',
       'barrios de pie', 'somos barrios de pie',
       'movimiento evita', 'corriente clasista combativa',
@@ -800,11 +817,9 @@ const AREAS: AreaConfig[] = [
       // Evitar declaraciones eclesiásticas amplias
       'conferencia episcopal', 'episcopal argentina', 'cardenal', 'obispo',
       // Evitar política partidaria sin vínculo territorial
-      'interna pj', 'interna del pj', 'mesa de gobernadores',
-      // Evitar inseguridad/seguridad genérica
-      'inseguridad delictiva', 'narcotráfico', 'narcotrafico',
+      'interna pj', 'interna del pj',
       // Evitar bienestar animal y limpieza/medio ambiente que no son del área
-      'bienestar animal', 'maltrato animal', 'caballos', 'mascotas',
+      'bienestar animal', 'maltrato animal', 'caballos',
       'arrojaban basura', 'arrojan basura', 'basura clandestina',
     ],
   },
