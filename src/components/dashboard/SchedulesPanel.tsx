@@ -10,8 +10,8 @@ const scheduleTypeMap: Record<string, { type: "personal" | "group" | "weekly" | 
   "Resumen 07:00":  { type: "personal",          emoji: "📋" },
   "Resumen 13:00":  { type: "personal",          emoji: "📋" },
   "Boletín 20:00":  { type: "group",             emoji: "🗞️" },
-  "Semanal Sábado": { type: "weekly",            emoji: "📅" },
   "Lunes Realidad": { type: "monday_realidad",   emoji: "🗞️" },
+  "Martes Áreas":   { type: "weekly",            emoji: "⚽" },
 };
 
 export function SchedulesPanel() {
@@ -76,7 +76,7 @@ export function SchedulesPanel() {
                         <Badge variant="outline" className="text-xs">
                           {
                             meta.type === "personal" ? "Solo a Facu" :
-                            meta.type === "weekly" ? "Semanal — Grupo" :
+                            meta.type === "weekly" ? "Martes — Grupo" :
                             meta.type === "monday_realidad" ? "Lunes — Grupo" :
                             "Grupo WhatsApp"
                           }
