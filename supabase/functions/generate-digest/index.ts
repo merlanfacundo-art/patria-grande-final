@@ -1020,7 +1020,7 @@ REGLAS ABSOLUTAS:
 
 ESTRUCTURA EXACTA del boletín que tenés que generar:
 
-🗞️ *PATRIA GRANDE — Resumen Semanal*
+🗞️ *DOS CABEZAZOS EN EL ÁREA ES GOL*
 📅 ${dateLong}
 
 ━━━━━━━━━━━━━━━━━
@@ -1059,7 +1059,7 @@ ESTRUCTURA EXACTA del boletín que tenés que generar:
     prompt += `\nGenerá ahora la sección ${area.emoji} *${area.nombre}* siguiendo las reglas. Si no hay candidatos para algún nivel, omití esa fila.\n\n`;
   }
 
-  prompt += `\n━━━━━━━━━━━━━━━━━\n✌️🇦🇷 *Patria Grande* | Semanal — ${dateShort}\n\nGenerá ahora el boletín completo.`;
+  prompt += `\n━━━━━━━━━━━━━━━━━\n✌️🇦🇷 *Patria Grande* | Mar ${dateShort} — 20:00\n\nGenerá ahora el boletín completo.`;
 
   return prompt;
 }
